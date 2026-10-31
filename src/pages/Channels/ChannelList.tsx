@@ -13,15 +13,18 @@ import {
   message,
   Typography,
   Badge,
+  Alert,
 } from 'antd';
-import { PlusOutlined, ReloadOutlined, ApiOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, ApiOutlined, CheckCircleOutlined, BankOutlined } from '@ant-design/icons';
 import { channelApi } from '../../api/channel';
 import { isSuccess } from '../../types/api';
 import type { Channel, ChannelType, CreateChannelRequest } from '../../types/api';
+import { useAuth } from '../../context/AuthContext';
 
 const { Text } = Typography;
 
 export const ChannelList: React.FC = () => {
+  const { currentCompany } = useAuth();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -29,9 +32,13 @@ export const ChannelList: React.FC = () => {
   const [form] = Form.useForm();
 
   const fetchChannels = async () => {
+    if (!currentCompany) {
+      setChannels([]);
+      return;
+    }
     try {
       setLoading(true);
-      const res = await channelApi.getChannels();
+      const res = await channelApi.getChannels(currentCompany.id);
       if (isSuccess(res) && res.data) {
         setChannels(res.data);
       }
@@ -44,10 +51,15 @@ export const ChannelList: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchChannels();
-  }, []);
+    if (currentCompany) {
+      fetchChannels();
+    } else {
+      setChannels([]);
+    }
+  }, [currentCompany?.id]);
 
   const handleCreateChannel = async (values: CreateChannelRequest) => {
+    if (!currentCompany) return;
     try {
       setSubmitting(true);
       const payload: CreateChannelRequest = {
@@ -56,7 +68,7 @@ export const ChannelList: React.FC = () => {
         aiEnabled: !!values.aiEnabled,
         config: {},
       };
-      const res = await channelApi.createChannel(payload);
+      const res = await channelApi.createChannel(payload, currentCompany.id);
       if (isSuccess(res)) {
         message.success(res.message || 'Tạo kênh kết nối thành công!');
         setIsModalOpen(false);
@@ -147,12 +159,27 @@ export const ChannelList: React.FC = () => {
     },
   ];
 
+  if (!currentCompany) {
+    return (
+      <Card style={{ borderRadius: 12 }}>
+        <Alert
+          message="Bạn chưa có công ty hoạt động"
+          description="Để tạo và quản lý các kênh giao tiếp (Website, Telegram, Zalo...), bạn cần tạo hoặc chọn một công ty trước. Vui lòng bấm nút 'Tạo' ở góc trên bên phải thanh tiêu đề."
+          type="warning"
+          showIcon
+          icon={<BankOutlined />}
+        />
+      </Card>
+    );
+  }
+
   return (
     <Card
       title={
         <Space>
           <ApiOutlined style={{ color: '#1677ff' }} />
           <span>Danh sách Kênh Giao Tiếp</span>
+          <Tag color="geekblue">{currentCompany.name}</Tag>
         </Space>
       }
       extra={
@@ -180,11 +207,11 @@ export const ChannelList: React.FC = () => {
         rowKey="id"
         loading={loading}
         pagination={{ pageSize: 10 }}
-        locale={{ emptyText: 'Chưa có kênh kết nối nào' }}
+        locale={{ emptyText: 'Chưa có kênh kết nối nào trong công ty này' }}
       />
 
       <Modal
-        title="Tạo Kênh Kết Nối Mới"
+        title={`Tạo Kênh Mới cho ${currentCompany.name}`}
         open={isModalOpen}
         onCancel={() => setIsModalOpen(false)}
         footer={null}

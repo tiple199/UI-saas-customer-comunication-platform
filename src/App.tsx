@@ -1,31 +1,9 @@
 import React from 'react';
-import { ConfigProvider, Spin, App as AntdApp } from 'antd';
+import { BrowserRouter } from 'react-router-dom';
+import { ConfigProvider, App as AntdApp } from 'antd';
 import viVN from 'antd/locale/vi_VN';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { AuthPage } from './pages/Auth/AuthPage';
-import { MainLayout } from './components/MainLayout';
-
-const AppContent: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
-
-  if (isLoading) {
-    return (
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          background: '#f8fafc',
-        }}
-      >
-        <Spin size="large" tip="Đang tải dữ liệu..." />
-      </div>
-    );
-  }
-
-  return isAuthenticated ? <MainLayout /> : <AuthPage />;
-};
+import { AuthProvider } from './context/AuthContext';
+import { AppRoutes } from './routes/AppRoutes';
 
 export const App: React.FC = () => {
   return (
@@ -42,7 +20,9 @@ export const App: React.FC = () => {
     >
       <AntdApp>
         <AuthProvider>
-          <AppContent />
+          <BrowserRouter>
+            <AppRoutes />
+          </BrowserRouter>
         </AuthProvider>
       </AntdApp>
     </ConfigProvider>

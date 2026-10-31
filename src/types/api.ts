@@ -47,6 +47,31 @@ export interface RegisterRequest {
   fullName: string;
 }
 
+export interface Company {
+  id: number;
+  name: string;
+  logoUrl?: string;
+  status: string;
+  userRole?: string;
+  joinedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateCompanyRequest {
+  name: string;
+}
+
+export interface CompanyMember {
+  userId: number;
+  email: string;
+  fullName: string;
+  avatarUrl?: string;
+  role: 'OWNER' | 'ADMIN' | 'MEMBER';
+  status: 'ACTIVE' | 'INVITED' | 'INACTIVE';
+  joinedAt?: string;
+}
+
 export type ChannelType = 'WEB' | 'TELEGRAM' | 'FACEBOOK' | 'ZALO';
 
 export type ChannelStatus = 'ACTIVE' | 'INACTIVE' | 'CONNECTING' | 'ERROR';
@@ -89,7 +114,20 @@ export interface ChatRoom {
 }
 
 export interface CreateChatRoomRequest {
-  name?: string;
+  name: string;
   type: ChatRoomType;
   memberUserIds?: number[];
+}
+
+export interface InternalMessage {
+  id: number;
+  senderId: number;
+  content: string;
+  messageType: string;
+  createdAt: string;
+}
+
+export interface SendMessageRequest {
+  content: string;
+  messageType?: string;
 }
