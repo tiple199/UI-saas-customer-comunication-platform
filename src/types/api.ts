@@ -11,12 +11,11 @@ export const isSuccess = <T>(res?: ApiResponse<T> | null): boolean => {
 };
 
 export interface PageResponse<T> {
-  content: T[];
-  pageNumber: number;
-  pageSize: number;
+  items: T[];
+  page: number;
+  size: number;
   totalElements: number;
   totalPages: number;
-  last: boolean;
 }
 
 export interface User {
@@ -62,6 +61,12 @@ export interface CreateCompanyRequest {
   name: string;
 }
 
+export interface UpdateCompanyRequest {
+  name?: string;
+  logoUrl?: string;
+  status?: string;
+}
+
 export interface CompanyMember {
   userId: number;
   email: string;
@@ -70,6 +75,13 @@ export interface CompanyMember {
   role: 'OWNER' | 'ADMIN' | 'MEMBER';
   status: 'ACTIVE' | 'INVITED' | 'INACTIVE';
   joinedAt?: string;
+}
+
+export interface CreateMemberAccountRequest {
+  fullName: string;
+  email: string;
+  password: string;
+  role: 'ADMIN' | 'MEMBER';
 }
 
 export type ChannelType = 'WEB' | 'TELEGRAM' | 'FACEBOOK' | 'ZALO';
@@ -94,6 +106,14 @@ export interface Channel {
 export interface CreateChannelRequest {
   name: string;
   type: ChannelType;
+  config?: Record<string, unknown>;
+  aiEnabled?: boolean;
+}
+
+export interface UpdateChannelRequest {
+  name?: string;
+  type?: ChannelType;
+  status?: ChannelStatus;
   config?: Record<string, unknown>;
   aiEnabled?: boolean;
 }
@@ -130,4 +150,41 @@ export interface InternalMessage {
 export interface SendMessageRequest {
   content: string;
   messageType?: string;
+}
+
+export interface ChatRoomMember {
+  id: number;
+  userId: number;
+  fullName: string;
+  email: string;
+  avatarUrl?: string;
+  joinAt?: string;
+  lastReadMessageId?: number;
+}
+
+export interface PublicWidgetConfig {
+  channelKey: string;
+  name: string;
+  welcomeMessage: string;
+  aiEnabled: boolean;
+}
+
+export interface WidgetHandshakeRequest {
+  channelKey: string;
+  visitorToken?: string;
+  name?: string;
+  email?: string;
+}
+
+export interface WidgetHandshakeResponse {
+  channelKey: string;
+  channelName: string;
+  welcomeMessage: string;
+  aiEnabled: boolean;
+  visitorId: number;
+  visitorToken: string;
+  visitorName?: string;
+  visitorEmail?: string;
+  isNewVisitor: boolean;
+  connectedAt: string;
 }

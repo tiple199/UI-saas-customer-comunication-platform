@@ -6,6 +6,7 @@ import { AdminLayout } from '../layouts/AdminLayout';
 import { ChannelList } from '../pages/Channels/ChannelList';
 import { MemberList } from '../pages/Admin/CompanyMembers/MemberList';
 import { ChatRoomAdminList } from '../pages/Admin/ChatRooms/ChatRoomAdminList';
+import { CompanySettingsPage } from '../pages/Admin/CompanySettings/CompanySettingsPage';
 import { ChatWorkspacePage } from '../pages/Chat/ChatWorkspacePage';
 import { Spin } from 'antd';
 
@@ -50,6 +51,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="channels" element={<ChannelList />} />
         <Route path="members" element={<MemberList />} />
         <Route path="chat-rooms" element={<ChatRoomAdminList />} />
+        <Route path="settings" element={<CompanySettingsPage />} />
       </Route>
 
       {/* Không gian Ứng dụng Trò Chuyện (Chat Workspace) */}

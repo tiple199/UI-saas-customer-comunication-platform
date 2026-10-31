@@ -17,6 +17,9 @@ import {
   Spin,
   Alert,
   Dropdown,
+  Drawer,
+  Popconfirm,
+  Divider,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -31,6 +34,8 @@ import {
   AppstoreOutlined,
   LogoutOutlined,
   MessageFilled,
+  UserAddOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { chatRoomApi } from '../../api/chatRoom';
@@ -38,6 +43,7 @@ import { companyApi } from '../../api/company';
 import { isSuccess } from '../../types/api';
 import type {
   ChatRoom,
+  ChatRoomMember,
   CompanyMember,
   InternalMessage,
 } from '../../types/api';
@@ -60,10 +66,17 @@ export const ChatWorkspacePage: React.FC = () => {
   const [inputContent, setInputContent] = useState('');
   const [sending, setSending] = useState(false);
 
-  // State danh sách đồng nghiệp
+  // State danh sách đồng nghiệp công ty
   const [members, setMembers] = useState<CompanyMember[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [searchMemberText, setSearchMemberText] = useState('');
+
+  // State Drawer quản lý thành viên phòng chat
+  const [isRoomMembersOpen, setIsRoomMembersOpen] = useState(false);
+  const [roomMembers, setRoomMembers] = useState<ChatRoomMember[]>([]);
+  const [loadingRoomMembers, setLoadingRoomMembers] = useState(false);
+  const [selectedNewMembers, setSelectedNewMembers] = useState<number[]>([]);
+  const [addingMembers, setAddingMembers] = useState(false);
 
   // State Modal tạo nhóm
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
@@ -88,12 +101,21 @@ export const ChatWorkspacePage: React.FC = () => {
     if (!currentCompany) return;
     try {
       setLoadingRooms(true);
-      const res = await chatRoomApi.getMyChatRooms();
+      const res = await chatRoomApi.getMyChatRooms(currentCompany.id);
       if (isSuccess(res) && res.data) {
         setRooms(res.data);
         if (activeRoom) {
           const updated = res.data.find((r) => r.id === activeRoom.id);
           if (updated) setActiveRoom(updated);
+        } else if (res.data.length > 0) {
+          const savedRoomId = sessionStorage.getItem(`active_room_${currentCompany.id}`);
+          const targetRoom = savedRoomId
+            ? res.data.find((r) => String(r.id) === savedRoomId) || res.data[0]
+            : res.data[0];
+          if (targetRoom) {
+            setActiveRoom(targetRoom);
+            fetchMessages(targetRoom.id);
+          }
         }
       }
     } catch (err: any) {
@@ -119,11 +141,12 @@ export const ChatWorkspacePage: React.FC = () => {
   };
 
   const fetchMessages = async (roomId: number) => {
+    if (!currentCompany) return;
     try {
       setLoadingMessages(true);
-      const res = await chatRoomApi.getChatRoomMessages(roomId, 0, 100);
+      const res = await chatRoomApi.getChatRoomMessages(roomId, 0, 100, currentCompany.id);
       if (isSuccess(res) && res.data) {
-        const list = (res.data.content || []).slice().reverse();
+        const list = (res.data.items || []).slice().reverse();
         setMessages(list);
         setTimeout(scrollToBottom, 100);
       }
@@ -131,6 +154,70 @@ export const ChatWorkspacePage: React.FC = () => {
       message.error(err.response?.data?.message || 'Lỗi khi tải tin nhắn');
     } finally {
       setLoadingMessages(false);
+    }
+  };
+
+  const fetchRoomMembers = async (roomId: number) => {
+    if (!currentCompany) return;
+    try {
+      setLoadingRoomMembers(true);
+      const res = await chatRoomApi.getChatRoomMembers(roomId, currentCompany.id);
+      if (isSuccess(res) && res.data) {
+        setRoomMembers(res.data);
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Không thể tải danh sách thành viên phòng');
+    } finally {
+      setLoadingRoomMembers(false);
+    }
+  };
+
+  const handleOpenRoomMembers = () => {
+    if (!activeRoom) return;
+    setIsRoomMembersOpen(true);
+    setSelectedNewMembers([]);
+    fetchRoomMembers(activeRoom.id);
+  };
+
+  const handleAddRoomMembers = async () => {
+    if (!activeRoom || !currentCompany || selectedNewMembers.length === 0) return;
+    try {
+      setAddingMembers(true);
+      const res = await chatRoomApi.addMembers(activeRoom.id, selectedNewMembers, currentCompany.id);
+      if (isSuccess(res)) {
+        message.success('Đã thêm thành viên vào nhóm chat!');
+        setSelectedNewMembers([]);
+        fetchRoomMembers(activeRoom.id);
+      } else {
+        message.error(res.message || 'Thêm thành viên thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi thêm thành viên vào nhóm');
+    } finally {
+      setAddingMembers(false);
+    }
+  };
+
+  const handleRemoveRoomMember = async (targetUserId: number) => {
+    if (!activeRoom || !currentCompany) return;
+    try {
+      const res = await chatRoomApi.removeMember(activeRoom.id, targetUserId, currentCompany.id);
+      if (isSuccess(res)) {
+        if (targetUserId === user?.id) {
+          message.success('Bạn đã rời khỏi nhóm chat');
+          setIsRoomMembersOpen(false);
+          setActiveRoom(null);
+          setMessages([]);
+          fetchRooms();
+        } else {
+          message.success('Đã xóa thành viên khỏi nhóm chat');
+          fetchRoomMembers(activeRoom.id);
+        }
+      } else {
+        message.error(res.message || 'Xóa thành viên thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi xóa thành viên khỏi phòng');
     }
   };
 
@@ -149,14 +236,18 @@ export const ChatWorkspacePage: React.FC = () => {
 
   const handleSelectRoom = (room: ChatRoom) => {
     setActiveRoom(room);
+    if (currentCompany) {
+      sessionStorage.setItem(`active_room_${currentCompany.id}`, String(room.id));
+    }
     fetchMessages(room.id);
-    chatRoomApi.markAsRead(room.id).catch(() => {});
+    chatRoomApi.markAsRead(room.id, currentCompany?.id).catch(() => {});
   };
 
   const handleStartDirectChat = async (targetUserId: number) => {
+    if (!currentCompany) return;
     try {
       setLoadingRooms(true);
-      const res = await chatRoomApi.getOrCreateDirectRoom(targetUserId);
+      const res = await chatRoomApi.getOrCreateDirectRoom(targetUserId, currentCompany.id);
       if (isSuccess(res) && res.data) {
         const room = res.data;
         setRooms((prev) => {
@@ -164,6 +255,7 @@ export const ChatWorkspacePage: React.FC = () => {
           return exists ? prev : [room, ...prev];
         });
         setActiveRoom(room);
+        sessionStorage.setItem(`active_room_${currentCompany.id}`, String(room.id));
         setSidebarTab('chats');
         fetchMessages(room.id);
       } else {
@@ -177,15 +269,19 @@ export const ChatWorkspacePage: React.FC = () => {
   };
 
   const handleSendMessage = async () => {
-    if (!activeRoom || !inputContent.trim()) return;
+    if (!activeRoom || !inputContent.trim() || !currentCompany) return;
     const textToSend = inputContent.trim();
     setInputContent('');
     try {
       setSending(true);
-      const res = await chatRoomApi.sendMessage(activeRoom.id, {
-        content: textToSend,
-        messageType: 'TEXT',
-      });
+      const res = await chatRoomApi.sendMessage(
+        activeRoom.id,
+        {
+          content: textToSend,
+          messageType: 'TEXT',
+        },
+        currentCompany.id
+      );
       if (isSuccess(res) && res.data) {
         setMessages((prev) => [...prev, res.data]);
         setTimeout(scrollToBottom, 50);
@@ -200,19 +296,24 @@ export const ChatWorkspacePage: React.FC = () => {
   };
 
   const handleCreateGroup = async (values: { name: string; memberUserIds?: number[] }) => {
+    if (!currentCompany) return;
     try {
       setSubmittingGroup(true);
-      const res = await chatRoomApi.createChatRoom({
-        name: values.name,
-        type: 'GROUP',
-        memberUserIds: values.memberUserIds || [],
-      });
+      const res = await chatRoomApi.createChatRoom(
+        {
+          name: values.name,
+          type: 'GROUP',
+          memberUserIds: values.memberUserIds || [],
+        },
+        currentCompany.id
+      );
       if (isSuccess(res) && res.data) {
         message.success(`Đã tạo nhóm "${res.data.name}" thành công!`);
         setIsGroupModalOpen(false);
         groupForm.resetFields();
         setRooms((prev) => [res.data, ...prev]);
         setActiveRoom(res.data);
+        sessionStorage.setItem(`active_room_${currentCompany.id}`, String(res.data.id));
         setSidebarTab('chats');
         fetchMessages(res.data.id);
       } else {
@@ -267,6 +368,11 @@ export const ChatWorkspacePage: React.FC = () => {
     (m) =>
       m.fullName?.toLowerCase().includes(searchMemberText.toLowerCase()) ||
       m.email?.toLowerCase().includes(searchMemberText.toLowerCase())
+  );
+
+  // Danh sách đồng nghiệp chưa có trong phòng nhóm hiện tại
+  const availableColleaguesToAdd = members.filter(
+    (m) => !roomMembers.some((rm) => rm.userId === m.userId)
   );
 
   return (
@@ -640,6 +746,12 @@ export const ChatWorkspacePage: React.FC = () => {
                         </Tag>
                       </div>
                     </Space>
+
+                    <Space>
+                      <Button icon={<TeamOutlined />} onClick={handleOpenRoomMembers}>
+                        Thành viên phòng
+                      </Button>
+                    </Space>
                   </div>
 
                   <div
@@ -781,6 +893,106 @@ export const ChatWorkspacePage: React.FC = () => {
         )}
       </div>
 
+      {/* Drawer Quản Lý Thành Viên Phòng Chat */}
+      <Drawer
+        title={
+          <Space>
+            <TeamOutlined />
+            <span>Thành viên phòng ({roomMembers.length})</span>
+          </Space>
+        }
+        placement="right"
+        width={380}
+        onClose={() => setIsRoomMembersOpen(false)}
+        open={isRoomMembersOpen}
+      >
+        {activeRoom?.type === 'GROUP' && (
+          <div style={{ marginBottom: 16 }}>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>
+              Thêm đồng nghiệp vào nhóm
+            </Text>
+            <Space.Compact style={{ width: '100%' }}>
+              <Select
+                mode="multiple"
+                placeholder="Chọn đồng nghiệp..."
+                style={{ flex: 1 }}
+                value={selectedNewMembers}
+                onChange={setSelectedNewMembers}
+                options={availableColleaguesToAdd.map((m) => ({
+                  label: `${m.fullName} (${m.email})`,
+                  value: m.userId,
+                }))}
+              />
+              <Button
+                type="primary"
+                icon={<UserAddOutlined />}
+                onClick={handleAddRoomMembers}
+                loading={addingMembers}
+                disabled={selectedNewMembers.length === 0}
+              >
+                Thêm
+              </Button>
+            </Space.Compact>
+            <Divider style={{ margin: '16px 0 12px' }} />
+          </div>
+        )}
+
+        {loadingRoomMembers ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <Spin tip="Đang tải danh sách thành viên..." />
+          </div>
+        ) : (
+          <List
+            dataSource={roomMembers}
+            renderItem={(rm) => {
+              const colInfo = members.find((m) => m.userId === rm.userId);
+              const isMe = rm.userId === user?.id;
+              return (
+                <List.Item
+                  actions={
+                    activeRoom?.type === 'GROUP'
+                      ? [
+                          <Popconfirm
+                            key="remove"
+                            title={isMe ? 'Rời khỏi nhóm chat?' : 'Xóa thành viên khỏi nhóm?'}
+                            onConfirm={() => handleRemoveRoomMember(rm.userId)}
+                            okText="Đồng ý"
+                            cancelText="Hủy"
+                            okButtonProps={{ danger: true }}
+                          >
+                            <Button type="text" danger size="small" icon={<DeleteOutlined />}>
+                              {isMe ? 'Rời nhóm' : 'Xóa'}
+                            </Button>
+                          </Popconfirm>,
+                        ]
+                      : undefined
+                  }
+                >
+                  <List.Item.Meta
+                    avatar={
+                      <Avatar style={{ backgroundColor: '#1677ff' }} icon={<UserOutlined />}>
+                        {colInfo?.fullName?.charAt(0).toUpperCase()}
+                      </Avatar>
+                    }
+                    title={
+                      <Space size={6}>
+                        <Text strong>{colInfo?.fullName || `User #${rm.userId}`}</Text>
+                        {isMe && <Tag color="blue">Bạn</Tag>}
+                      </Space>
+                    }
+                    description={
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {colInfo?.email || `Tham gia: ${rm.joinAt ? new Date(rm.joinAt).toLocaleDateString('vi-VN') : '-'}`}
+                      </Text>
+                    }
+                  />
+                </List.Item>
+              );
+            }}
+          />
+        )}
+      </Drawer>
+
       {/* Modal Tạo Nhóm */}
       <Modal
         title="Tạo Nhóm Chat Nội Bộ Mới"
@@ -855,4 +1067,3 @@ export const ChatWorkspacePage: React.FC = () => {
     </div>
   );
 };
-

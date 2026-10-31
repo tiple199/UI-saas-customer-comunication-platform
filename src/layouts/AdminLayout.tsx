@@ -23,6 +23,7 @@ import {
   PlusOutlined,
   TeamOutlined,
   WechatOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -81,6 +82,8 @@ export const AdminLayout: React.FC = () => {
     ? 'members'
     : location.pathname.includes('/admin/chat-rooms')
     ? 'chat-rooms'
+    : location.pathname.includes('/admin/settings')
+    ? 'settings'
     : 'channels';
 
   return (
@@ -212,6 +215,12 @@ export const AdminLayout: React.FC = () => {
                 icon: <CommentOutlined />,
                 label: 'Quản Lý Phòng Chat',
                 onClick: () => navigate('/admin/chat-rooms'),
+              },
+              {
+                key: 'settings',
+                icon: <SettingOutlined />,
+                label: 'Cài Đặt Công Ty',
+                onClick: () => navigate('/admin/settings'),
               },
             ]}
           />

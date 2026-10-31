@@ -38,7 +38,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (isSuccess(res) && res.data) {
         setCompanies(res.data);
 
-        // Xác định ID công ty cần active
         let targetId = activeCompanyId;
         if (targetId === undefined) {
           const stored = localStorage.getItem('user_info');
@@ -76,18 +75,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Lắng nghe sự kiện từ Axios Interceptor khi tự động refresh token hoặc khi refresh thất bại
+  useEffect(() => {
+    const handleTokenRefreshed = (event: Event) => {
+      const customEvent = event as CustomEvent<AuthResponse>;
+      if (customEvent.detail) {
+        setToken(customEvent.detail.accessToken);
+        if (customEvent.detail.user) {
+          setUser(customEvent.detail.user);
+        }
+      }
+    };
+
+    const handleForceLogout = () => {
+      setToken(null);
+      setUser(null);
+      setCompanies([]);
+      setCurrentCompany(null);
+    };
+
+    window.addEventListener('auth:token-refreshed', handleTokenRefreshed);
+    window.addEventListener('auth:logout', handleForceLogout);
+
+    return () => {
+      window.removeEventListener('auth:token-refreshed', handleTokenRefreshed);
+      window.removeEventListener('auth:logout', handleForceLogout);
+    };
+  }, []);
+
   useEffect(() => {
     if (token) {
       reloadUser().finally(() => setIsLoading(false));
     } else {
       setIsLoading(false);
     }
-  }, [token]);
+  }, []);
 
   const login = (authData: AuthResponse) => {
     setToken(authData.accessToken);
     setUser(authData.user);
     localStorage.setItem('access_token', authData.accessToken);
+    if (authData.refreshToken) {
+      localStorage.setItem('refresh_token', authData.refreshToken);
+    }
     localStorage.setItem('user_info', JSON.stringify(authData.user));
     fetchCompanies(authData.user.currentCompanyId);
   };
@@ -105,6 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCompanies([]);
       setCurrentCompany(null);
       localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
       localStorage.removeItem('user_info');
     }
   };
@@ -115,10 +146,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (isSuccess(res) && res.data) {
         message.success(`Đã chuyển sang công ty "${res.data.name}"`);
 
-        // Cập nhật tức thì currentCompany
         setCurrentCompany(res.data);
 
-        // Cập nhật user state & localStorage
         setUser((prev) => (prev ? { ...prev, currentCompanyId: companyId } : prev));
         const stored = localStorage.getItem('user_info');
         if (stored) {
@@ -131,7 +160,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
-        // Tải lại dữ liệu đồng bộ
         await reloadUser(companyId);
         return true;
       } else {

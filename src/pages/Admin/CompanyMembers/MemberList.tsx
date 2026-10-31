@@ -14,6 +14,9 @@ import {
   Popconfirm,
   Alert,
   Avatar,
+  Tabs,
+  Switch,
+  Tooltip,
 } from 'antd';
 import {
   TeamOutlined,
@@ -22,10 +25,13 @@ import {
   UserOutlined,
   DeleteOutlined,
   BankOutlined,
+  MailOutlined,
+  LockOutlined,
+  UserSwitchOutlined,
 } from '@ant-design/icons';
 import { companyApi } from '../../../api/company';
 import { isSuccess } from '../../../types/api';
-import type { CompanyMember } from '../../../types/api';
+import type { CompanyMember, CreateMemberAccountRequest } from '../../../types/api';
 import { useAuth } from '../../../context/AuthContext';
 
 const { Text } = Typography;
@@ -34,9 +40,16 @@ export const MemberList: React.FC = () => {
   const { user, currentCompany } = useAuth();
   const [members, setMembers] = useState<CompanyMember[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Modal thêm thành viên
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [activeModalTab, setActiveModalTab] = useState<'invite' | 'create'>('invite');
   const [submitting, setSubmitting] = useState(false);
-  const [form] = Form.useForm();
+  const [inviteForm] = Form.useForm();
+  const [createForm] = Form.useForm();
+
+  // Loading state cho việc đổi trạng thái active/inactive
+  const [updatingStatusUserId, setUpdatingStatusUserId] = useState<number | null>(null);
 
   const fetchMembers = async () => {
     if (!currentCompany) return;
@@ -61,7 +74,8 @@ export const MemberList: React.FC = () => {
     }
   }, [currentCompany?.id]);
 
-  const handleAddMember = async (values: { email: string; role: string }) => {
+  // Tab 1: Mời người dùng đã có email trên hệ thống
+  const handleInviteMember = async (values: { email: string; role: string }) => {
     if (!currentCompany) return;
     try {
       setSubmitting(true);
@@ -69,7 +83,7 @@ export const MemberList: React.FC = () => {
       if (isSuccess(res)) {
         message.success('Thêm thành viên vào công ty thành công!');
         setIsAddModalOpen(false);
-        form.resetFields();
+        inviteForm.resetFields();
         fetchMembers();
       } else {
         message.error(res.message || 'Thêm thành viên thất bại');
@@ -81,6 +95,50 @@ export const MemberList: React.FC = () => {
     }
   };
 
+  // Tab 2: Tạo tài khoản mới trực tiếp cho nhân viên
+  const handleCreateAccount = async (values: CreateMemberAccountRequest) => {
+    if (!currentCompany) return;
+    try {
+      setSubmitting(true);
+      const res = await companyApi.createMemberAccount(currentCompany.id, values);
+      if (isSuccess(res)) {
+        message.success(`Đã tạo tài khoản cho "${values.fullName}" và thêm vào công ty!`);
+        setIsAddModalOpen(false);
+        createForm.resetFields();
+        fetchMembers();
+      } else {
+        message.error(res.message || 'Tạo tài khoản thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi tạo tài khoản nhân viên');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Thay đổi trạng thái ACTIVE / INACTIVE của nhân viên
+  const handleToggleMemberStatus = async (record: CompanyMember, checked: boolean) => {
+    if (!currentCompany) return;
+    const newStatus = checked ? 'ACTIVE' : 'INACTIVE';
+    try {
+      setUpdatingStatusUserId(record.userId);
+      const res = await companyApi.updateMemberStatus(currentCompany.id, record.userId, newStatus);
+      if (isSuccess(res)) {
+        message.success(`Đã ${checked ? 'kích hoạt' : 'đình chỉ'} tài khoản của ${record.fullName}`);
+        setMembers((prev) =>
+          prev.map((m) => (m.userId === record.userId ? { ...m, status: newStatus } : m))
+        );
+      } else {
+        message.error(res.message || 'Không thể cập nhật trạng thái');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi cập nhật trạng thái');
+    } finally {
+      setUpdatingStatusUserId(null);
+    }
+  };
+
+  // Xóa thành viên khỏi công ty
   const handleRemoveMember = async (memberUserId: number) => {
     if (!currentCompany) return;
     try {
@@ -134,12 +192,34 @@ export const MemberList: React.FC = () => {
       render: (role: string) => getRoleTag(role),
     },
     {
-      title: 'Trạng thái',
-      dataIndex: 'status',
+      title: 'Trạng thái hoạt động',
       key: 'status',
-      render: (status: string) => (
-        <Tag color={status === 'ACTIVE' ? 'success' : 'default'}>{status || 'ACTIVE'}</Tag>
-      ),
+      render: (_: any, record: CompanyMember) => {
+        const isOwner = record.role === 'OWNER';
+        const isMe = record.userId === user?.id;
+        const isActive = record.status === 'ACTIVE';
+
+        // Không cho phép tự khóa chính mình hoặc khóa OWNER
+        if (isOwner || isMe) {
+          return (
+            <Tag color={isActive ? 'success' : 'default'}>
+              {record.status || 'ACTIVE'}
+            </Tag>
+          );
+        }
+
+        return (
+          <Tooltip title={isActive ? 'Click để đình chỉ hoạt động' : 'Click để kích hoạt lại'}>
+            <Switch
+              checked={isActive}
+              loading={updatingStatusUserId === record.userId}
+              onChange={(checked) => handleToggleMemberStatus(record, checked)}
+              checkedChildren="Hoạt động"
+              unCheckedChildren="Đình chỉ"
+            />
+          </Tooltip>
+        );
+      },
     },
     {
       title: 'Ngày tham gia',
@@ -206,7 +286,8 @@ export const MemberList: React.FC = () => {
             type="primary"
             icon={<UserAddOutlined />}
             onClick={() => {
-              form.resetFields();
+              inviteForm.resetFields();
+              createForm.resetFields();
               setIsAddModalOpen(true);
             }}
           >
@@ -224,54 +305,154 @@ export const MemberList: React.FC = () => {
         pagination={{ pageSize: 10 }}
       />
 
+      {/* Modal Thêm Thành Viên Đa Năng */}
       <Modal
         title={`Thêm Thành Viên Vào ${currentCompany.name}`}
         open={isAddModalOpen}
         onCancel={() => setIsAddModalOpen(false)}
         footer={null}
         destroyOnClose
+        width={500}
       >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleAddMember}
-          initialValues={{ role: 'MEMBER' }}
-        >
-          <Form.Item
-            name="email"
-            label="Email Thành Viên"
-            rules={[
-              { required: true, message: 'Vui lòng nhập email!' },
-              { type: 'email', message: 'Email không đúng định dạng!' },
-            ]}
-          >
-            <Input placeholder="nhanvien@example.com" />
-          </Form.Item>
+        <Tabs
+          activeKey={activeModalTab}
+          onChange={(k) => setActiveModalTab(k as 'invite' | 'create')}
+          items={[
+            {
+              key: 'invite',
+              label: (
+                <Space>
+                  <MailOutlined />
+                  <span>Mời qua Email</span>
+                </Space>
+              ),
+              children: (
+                <Form
+                  form={inviteForm}
+                  layout="vertical"
+                  onFinish={handleInviteMember}
+                  initialValues={{ role: 'MEMBER' }}
+                >
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="Dành cho người dùng đã có tài khoản sẵn trên hệ thống."
+                  />
+                  <Form.Item
+                    name="email"
+                    label="Email Thành Viên"
+                    rules={[
+                      { required: true, message: 'Vui lòng nhập email!' },
+                      { type: 'email', message: 'Email không đúng định dạng!' },
+                    ]}
+                  >
+                    <Input prefix={<MailOutlined />} placeholder="nhanvien@example.com" />
+                  </Form.Item>
 
-          <Form.Item
-            name="role"
-            label="Vai Trò Trong Công Ty"
-            rules={[{ required: true, message: 'Vui lòng chọn vai trò!' }]}
-          >
-            <Select
-              options={[
-                { label: 'Nhân viên (MEMBER)', value: 'MEMBER' },
-                { label: 'Quản trị viên (ADMIN)', value: 'ADMIN' },
-              ]}
-            />
-          </Form.Item>
+                  <Form.Item
+                    name="role"
+                    label="Vai Trò Trong Công Ty"
+                    rules={[{ required: true, message: 'Vui lòng chọn vai trò!' }]}
+                  >
+                    <Select
+                      options={[
+                        { label: 'Nhân viên (MEMBER)', value: 'MEMBER' },
+                        { label: 'Quản trị viên (ADMIN)', value: 'ADMIN' },
+                      ]}
+                    />
+                  </Form.Item>
 
-          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-            <Space>
-              <Button onClick={() => setIsAddModalOpen(false)}>Hủy</Button>
-              <Button type="primary" htmlType="submit" loading={submitting}>
-                Thêm ngay
-              </Button>
-            </Space>
-          </Form.Item>
-        </Form>
+                  <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+                    <Space>
+                      <Button onClick={() => setIsAddModalOpen(false)}>Hủy</Button>
+                      <Button type="primary" htmlType="submit" loading={submitting}>
+                        Thêm ngay
+                      </Button>
+                    </Space>
+                  </Form.Item>
+                </Form>
+              ),
+            },
+            {
+              key: 'create',
+              label: (
+                <Space>
+                  <UserSwitchOutlined />
+                  <span>Tạo tài khoản mới</span>
+                </Space>
+              ),
+              children: (
+                <Form
+                  form={createForm}
+                  layout="vertical"
+                  onFinish={handleCreateAccount}
+                  initialValues={{ role: 'MEMBER' }}
+                >
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="Tạo ngay tài khoản và cấp quyền gia nhập công ty trong một bước."
+                  />
+
+                  <Form.Item
+                    name="fullName"
+                    label="Họ và tên"
+                    rules={[{ required: true, message: 'Vui lòng nhập họ và tên!' }]}
+                  >
+                    <Input prefix={<UserOutlined />} placeholder="Nguyễn Văn B" />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="email"
+                    label="Email đăng nhập"
+                    rules={[
+                      { required: true, message: 'Vui lòng nhập email!' },
+                      { type: 'email', message: 'Email không đúng định dạng!' },
+                    ]}
+                  >
+                    <Input prefix={<MailOutlined />} placeholder="nhanvienmoi@example.com" />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="password"
+                    label="Mật khẩu khởi tạo"
+                    rules={[
+                      { required: true, message: 'Vui lòng nhập mật khẩu!' },
+                      { min: 6, message: 'Mật khẩu tối thiểu 6 ký tự!' },
+                    ]}
+                  >
+                    <Input.Password prefix={<LockOutlined />} placeholder="Tối thiểu 6 ký tự" />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="role"
+                    label="Vai Trò"
+                    rules={[{ required: true, message: 'Vui lòng chọn vai trò!' }]}
+                  >
+                    <Select
+                      options={[
+                        { label: 'Nhân viên (MEMBER)', value: 'MEMBER' },
+                        { label: 'Quản trị viên (ADMIN)', value: 'ADMIN' },
+                      ]}
+                    />
+                  </Form.Item>
+
+                  <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+                    <Space>
+                      <Button onClick={() => setIsAddModalOpen(false)}>Hủy</Button>
+                      <Button type="primary" htmlType="submit" loading={submitting}>
+                        Tạo và cấp quyền
+                      </Button>
+                    </Space>
+                  </Form.Item>
+                </Form>
+              ),
+            },
+          ]}
+        />
       </Modal>
     </Card>
   );
 };
-
