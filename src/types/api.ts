@@ -72,8 +72,8 @@ export interface CompanyMember {
   email: string;
   fullName: string;
   avatarUrl?: string;
-  role: 'OWNER' | 'ADMIN' | 'MEMBER';
-  status: 'ACTIVE' | 'INVITED' | 'INACTIVE';
+  role: 'OWNER' | 'ADMIN' | 'STAFF';
+  status: 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'SUSPENDED';
   joinedAt?: string;
 }
 
@@ -81,7 +81,7 @@ export interface CreateMemberAccountRequest {
   fullName: string;
   email: string;
   password: string;
-  role: 'ADMIN' | 'MEMBER';
+  role: 'ADMIN' | 'STAFF';
 }
 
 export type ChannelType = 'WEB' | 'TELEGRAM' | 'FACEBOOK' | 'ZALO';
@@ -186,5 +186,57 @@ export interface WidgetHandshakeResponse {
   visitorName?: string;
   visitorEmail?: string;
   isNewVisitor: boolean;
+  conversationId: number;
+  conversationStatus: ConversationStatus;
+  handlingMode: HandlingMode;
+  isNewConversation: boolean;
   connectedAt: string;
+}
+
+export type ConversationStatus = 'OPEN' | 'PENDING' | 'RESOLVED' | 'CLOSED';
+
+export type HandlingMode = 'AI' | 'HUMAN';
+
+export interface Conversation {
+  id: number;
+  status: ConversationStatus;
+  handlingMode: HandlingMode;
+  visitorId: number;
+  visitorName?: string;
+  visitorEmail?: string;
+  channelId: number;
+  channelName?: string;
+  assignedAgentId?: number | null;
+  assignedAgentName?: string | null;
+  companyId: number;
+  createdAt?: string;
+  updatedAt?: string;
+  resolvedAt?: string | null;
+}
+
+export interface CreateConversationRequest {
+  channelId: number;
+  visitorId: number;
+}
+
+export interface ConversationMessage {
+  id: number;
+  conversationId: number;
+  senderType: 'VISITOR' | 'AGENT' | 'AI' | string;
+  senderId?: number | null;
+  content: string;
+  messageType: string;
+  createdAt: string;
+}
+
+export interface RestoreConversationResponse {
+  conversation: Conversation | null;
+  messages: ConversationMessage[];
+}
+
+export interface WidgetSendMessageRequest {
+  channelKey: string;
+  visitorToken: string;
+  content: string;
+  messageType?: string;
 }

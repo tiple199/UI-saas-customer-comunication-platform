@@ -161,7 +161,7 @@ export const MemberList: React.FC = () => {
       case 'ADMIN':
         return <Tag color="orange">Quản trị viên (ADMIN)</Tag>;
       default:
-        return <Tag color="blue">Nhân viên (MEMBER)</Tag>;
+        return <Tag color="blue">Nhân viên (STAFF)</Tag>;
     }
   };
 
@@ -331,7 +331,7 @@ export const MemberList: React.FC = () => {
                   form={inviteForm}
                   layout="vertical"
                   onFinish={handleInviteMember}
-                  initialValues={{ role: 'MEMBER' }}
+                  initialValues={{ role: 'STAFF' }}
                 >
                   <Alert
                     type="info"
@@ -357,7 +357,7 @@ export const MemberList: React.FC = () => {
                   >
                     <Select
                       options={[
-                        { label: 'Nhân viên (MEMBER)', value: 'MEMBER' },
+                        { label: 'Nhân viên (STAFF)', value: 'STAFF' },
                         { label: 'Quản trị viên (ADMIN)', value: 'ADMIN' },
                       ]}
                     />
@@ -387,7 +387,7 @@ export const MemberList: React.FC = () => {
                   form={createForm}
                   layout="vertical"
                   onFinish={handleCreateAccount}
-                  initialValues={{ role: 'MEMBER' }}
+                  initialValues={{ role: 'STAFF' }}
                 >
                   <Alert
                     type="info"
@@ -433,7 +433,7 @@ export const MemberList: React.FC = () => {
                   >
                     <Select
                       options={[
-                        { label: 'Nhân viên (MEMBER)', value: 'MEMBER' },
+                        { label: 'Nhân viên (STAFF)', value: 'STAFF' },
                         { label: 'Quản trị viên (ADMIN)', value: 'ADMIN' },
                       ]}
                     />

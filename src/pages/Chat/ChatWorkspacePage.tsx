@@ -20,6 +20,7 @@ import {
   Drawer,
   Popconfirm,
   Divider,
+  Segmented,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -36,15 +37,24 @@ import {
   MessageFilled,
   UserAddOutlined,
   DeleteOutlined,
+  CustomerServiceOutlined,
+  RobotOutlined,
+  HistoryOutlined,
+  DownOutlined,
+  CheckOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { chatRoomApi } from '../../api/chatRoom';
 import { companyApi } from '../../api/company';
+import { conversationApi } from '../../api/conversation';
 import { isSuccess } from '../../types/api';
 import type {
   ChatRoom,
   ChatRoomMember,
   CompanyMember,
+  Conversation,
+  ConversationMessage,
+  ConversationStatus,
   InternalMessage,
 } from '../../types/api';
 import { useAuth } from '../../context/AuthContext';
@@ -88,8 +98,19 @@ export const ChatWorkspacePage: React.FC = () => {
   const [submittingCompany, setSubmittingCompany] = useState(false);
   const [companyForm] = Form.useForm();
 
-  // Tab sidebar: 'chats' hoặc 'members'
-  const [sidebarTab, setSidebarTab] = useState<'chats' | 'members'>('chats');
+  // Tab sidebar: 'customers' (Hội thoại khách hàng), 'chats' (Phòng nội bộ), 'members' (Đồng nghiệp)
+  const [sidebarTab, setSidebarTab] = useState<'customers' | 'chats' | 'members'>('customers');
+
+  // State Hội thoại khách hàng (Customer Conversations)
+  const [customerConvs, setCustomerConvs] = useState<Conversation[]>([]);
+  const [activeCustomerConv, setActiveCustomerConv] = useState<Conversation | null>(null);
+  const [loadingCustomerConvs, setLoadingCustomerConvs] = useState(false);
+  const [customerStatusFilter, setCustomerStatusFilter] = useState<ConversationStatus | undefined>(
+    undefined
+  );
+  const [customerMessages, setCustomerMessages] = useState<ConversationMessage[]>([]);
+  const [loadingCustomerMessages, setLoadingCustomerMessages] = useState(false);
+  const [restoringCustomerConv, setRestoringCustomerConv] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -137,6 +158,92 @@ export const ChatWorkspacePage: React.FC = () => {
       // ignore
     } finally {
       setLoadingMembers(false);
+    }
+  };
+
+  const fetchCustomerConversations = async (status = customerStatusFilter) => {
+    if (!currentCompany) return;
+    try {
+      setLoadingCustomerConvs(true);
+      const res = await conversationApi.getConversationsPaged(0, 50, status, currentCompany.id);
+      if (isSuccess(res) && res.data) {
+        const list = res.data.items || [];
+        setCustomerConvs(list);
+        if (activeCustomerConv) {
+          const updated = list.find((c) => c.id === activeCustomerConv.id);
+          if (updated) setActiveCustomerConv(updated);
+        } else if (list.length > 0) {
+          const savedConvId = sessionStorage.getItem(`active_customer_conv_${currentCompany.id}`);
+          const targetConv = savedConvId
+            ? list.find((c) => String(c.id) === savedConvId) || list[0]
+            : list[0];
+          if (targetConv) {
+            setActiveCustomerConv(targetConv);
+            fetchCustomerMessages(targetConv.id);
+          }
+        }
+      }
+    } catch (err: any) {
+      message.error(
+        err.response?.data?.message || 'Không thể tải danh sách cuộc hội thoại khách hàng'
+      );
+    } finally {
+      setLoadingCustomerConvs(false);
+    }
+  };
+
+  const fetchCustomerMessages = async (conversationId: number) => {
+    if (!currentCompany) return;
+    try {
+      setLoadingCustomerMessages(true);
+      const [convRes, msgRes] = await Promise.all([
+        conversationApi.getConversationById(conversationId, currentCompany.id),
+        conversationApi.getConversationMessages(conversationId, currentCompany.id),
+      ]);
+      if (isSuccess(convRes) && convRes.data) {
+        setActiveCustomerConv(convRes.data);
+      }
+      if (isSuccess(msgRes) && msgRes.data) {
+        setCustomerMessages(msgRes.data);
+        setTimeout(scrollToBottom, 100);
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi tải tin nhắn của khách hàng');
+    } finally {
+      setLoadingCustomerMessages(false);
+    }
+  };
+
+  const handleSelectCustomerConv = (conv: Conversation) => {
+    setActiveCustomerConv(conv);
+    if (currentCompany) {
+      sessionStorage.setItem(`active_customer_conv_${currentCompany.id}`, String(conv.id));
+    }
+    fetchCustomerMessages(conv.id);
+  };
+
+  const handleRestoreCustomerConv = async () => {
+    if (!activeCustomerConv || !currentCompany) return;
+    try {
+      setRestoringCustomerConv(true);
+      const res = await conversationApi.restoreConversation(
+        activeCustomerConv.id,
+        currentCompany.id
+      );
+      if (isSuccess(res) && res.data) {
+        message.success('Đã khôi phục cuộc hội thoại về trạng thái OPEN!');
+        if (res.data.conversation) {
+          setActiveCustomerConv(res.data.conversation);
+        }
+        setCustomerMessages(res.data.messages || []);
+        fetchCustomerConversations(customerStatusFilter);
+      } else {
+        message.error(res.message || 'Khôi phục cuộc hội thoại thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi khôi phục cuộc hội thoại');
+    } finally {
+      setRestoringCustomerConv(false);
     }
   };
 
@@ -223,16 +330,35 @@ export const ChatWorkspacePage: React.FC = () => {
 
   useEffect(() => {
     if (currentCompany) {
+      const savedTab = sessionStorage.getItem(`chat_sidebar_tab_${currentCompany.id}`) as
+        | 'customers'
+        | 'chats'
+        | 'members'
+        | null;
+      if (savedTab) {
+        setSidebarTab(savedTab);
+      }
       setActiveRoom(null);
       setMessages([]);
+      setActiveCustomerConv(null);
+      setCustomerMessages([]);
+      fetchCustomerConversations(customerStatusFilter);
       fetchRooms();
       fetchMembers();
     } else {
       setRooms([]);
       setMembers([]);
+      setCustomerConvs([]);
       setActiveRoom(null);
+      setActiveCustomerConv(null);
     }
   }, [currentCompany?.id]);
+
+  useEffect(() => {
+    if (currentCompany) {
+      fetchCustomerConversations(customerStatusFilter);
+    }
+  }, [customerStatusFilter]);
 
   const handleSelectRoom = (room: ChatRoom) => {
     setActiveRoom(room);
@@ -409,46 +535,151 @@ export const ChatWorkspacePage: React.FC = () => {
           </Text>
 
           {/* Chọn công ty */}
-          <Space align="center" style={{ background: 'rgba(255,255,255,0.08)', padding: '2px 8px', borderRadius: 6 }}>
-            <BankOutlined style={{ color: '#60a5fa', fontSize: 14 }} />
+          <Space size={8} align="center">
             {companies.length > 0 ? (
-              <Select
-                value={currentCompany?.id}
-                onChange={(val) => switchCompany(val)}
-                placeholder="Chọn công ty"
-                style={{ width: 160 }}
-                variant="borderless"
-                popupMatchSelectWidth={false}
-                options={companies.map((c) => ({
-                  label: `${c.name} (${c.userRole || 'MEMBER'})`,
-                  value: c.id,
-                }))}
-              />
+              <Dropdown
+                trigger={['click']}
+                placement="bottomLeft"
+                menu={{
+                  items: [
+                    {
+                      key: 'company-header',
+                      disabled: true,
+                      label: (
+                        <Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>
+                          CHUYỂN ĐỔI CÔNG TY LÀM VIỆC
+                        </Text>
+                      ),
+                    },
+                    ...companies.map((c) => {
+                      const isCurrent = c.id === currentCompany?.id;
+                      return {
+                        key: String(c.id),
+                        onClick: () => {
+                          if (!isCurrent) switchCompany(c.id);
+                        },
+                        label: (
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              minWidth: 210,
+                              gap: 12,
+                              padding: '2px 0',
+                            }}
+                          >
+                            <Space size={8}>
+                              <BankOutlined
+                                style={{ color: isCurrent ? '#1677ff' : '#64748b' }}
+                              />
+                              <Text strong={isCurrent} style={{ color: isCurrent ? '#1677ff' : undefined }}>
+                                {c.name}
+                              </Text>
+                            </Space>
+                            <Space size={6}>
+                              <Tag
+                                color={
+                                  c.userRole === 'OWNER'
+                                    ? 'gold'
+                                    : c.userRole === 'ADMIN'
+                                    ? 'blue'
+                                    : 'default'
+                                }
+                                style={{ margin: 0, fontSize: 10, lineHeight: '18px' }}
+                              >
+                                {c.userRole || 'STAFF'}
+                              </Tag>
+                              {isCurrent && <CheckOutlined style={{ color: '#1677ff', fontSize: 12 }} />}
+                            </Space>
+                          </div>
+                        ),
+                      };
+                    }),
+                    { type: 'divider' as const },
+                    {
+                      key: 'create-new-company',
+                      icon: <PlusOutlined style={{ color: '#1677ff' }} />,
+                      label: (
+                        <Text strong style={{ color: '#1677ff' }}>
+                          Tạo công ty mới...
+                        </Text>
+                      ),
+                      onClick: () => setIsCompanyModalOpen(true),
+                    },
+                  ],
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    background: 'rgba(255, 255, 255, 0.14)',
+                    border: '1px solid rgba(255, 255, 255, 0.25)',
+                    padding: '5px 12px',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    lineHeight: 1.2,
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <BankOutlined style={{ color: '#60a5fa', fontSize: 15 }} />
+                  <span style={{ color: '#ffffff', fontWeight: 600, fontSize: 13 }}>
+                    {currentCompany?.name || 'Chọn công ty'}
+                  </span>
+                  {currentCompany?.userRole && (
+                    <span
+                      style={{
+                        background:
+                          currentCompany.userRole === 'OWNER'
+                            ? 'rgba(250, 173, 20, 0.25)'
+                            : 'rgba(22, 119, 255, 0.35)',
+                        color: currentCompany.userRole === 'OWNER' ? '#ffd666' : '#91caff',
+                        border:
+                          currentCompany.userRole === 'OWNER'
+                            ? '1px solid rgba(250, 173, 20, 0.45)'
+                            : '1px solid rgba(145, 202, 255, 0.4)',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      {currentCompany.userRole}
+                    </span>
+                  )}
+                  <DownOutlined style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }} />
+                </div>
+              </Dropdown>
             ) : (
-              <Text style={{ color: '#fbbf24', fontSize: 12 }}>Chưa có công ty</Text>
+              <Button
+                type="primary"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={() => setIsCompanyModalOpen(true)}
+              >
+                Tạo Công Ty Mới
+              </Button>
             )}
-            <Button
-              type="primary"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={() => setIsCompanyModalOpen(true)}
-              style={{ fontSize: 11, height: 22 }}
-            >
-              Tạo
-            </Button>
           </Space>
         </Space>
 
         <Space size={14} align="center">
-          {/* Nút quay lại trang quản trị */}
-          <Button
-            type="default"
-            icon={<AppstoreOutlined />}
-            onClick={() => navigate('/admin/channels')}
-            style={{ fontWeight: 500 }}
-          >
-            Về Trang Quản Trị
-          </Button>
+          {/* Nút quay lại trang quản trị: Chỉ hiển thị cho OWNER / ADMIN (hoặc khi chưa có công ty) */}
+          {(!currentCompany ||
+            currentCompany.userRole === 'OWNER' ||
+            currentCompany.userRole === 'ADMIN') && (
+            <Button
+              type="default"
+              icon={<AppstoreOutlined />}
+              onClick={() => navigate('/admin/channels')}
+              style={{ fontWeight: 500 }}
+            >
+              Về Trang Quản Trị
+            </Button>
+          )}
 
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" arrow>
             <Space style={{ cursor: 'pointer', padding: '4px 6px' }}>
@@ -486,7 +717,7 @@ export const ChatWorkspacePage: React.FC = () => {
             {/* CỘT TRÁI: SIDEBAR */}
             <div
               style={{
-                width: 330,
+                width: 350,
                 borderRight: '1px solid #f0f0f0',
                 display: 'flex',
                 flexDirection: 'column',
@@ -495,65 +726,80 @@ export const ChatWorkspacePage: React.FC = () => {
             >
               <div
                 style={{
-                  padding: '14px 16px',
+                  padding: '14px 16px 12px',
                   borderBottom: '1px solid #f0f0f0',
                   background: '#fff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
                 }}
               >
-                <div>
-                  <Title level={5} style={{ margin: 0, fontSize: 15 }}>
-                    Trò Chuyện Nội Bộ
-                  </Title>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {currentCompany.name}
-                  </Text>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 12,
+                  }}
+                >
+                  <div>
+                    <Title level={5} style={{ margin: 0, fontSize: 15 }}>
+                      {sidebarTab === 'customers' ? 'Hỗ Trợ Khách Hàng' : 'Trò Chuyện Nội Bộ'}
+                    </Title>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {currentCompany.name}
+                    </Text>
+                  </div>
+                  <Space size={6}>
+                    {sidebarTab !== 'customers' && (
+                      <Button
+                        type="primary"
+                        size="small"
+                        icon={<PlusOutlined />}
+                        onClick={() => {
+                          groupForm.resetFields();
+                          setIsGroupModalOpen(true);
+                        }}
+                      >
+                        Tạo nhóm
+                      </Button>
+                    )}
+                    <Button
+                      size="small"
+                      icon={<ReloadOutlined />}
+                      onClick={() => {
+                        fetchCustomerConversations(customerStatusFilter);
+                        fetchRooms();
+                        fetchMembers();
+                      }}
+                    />
+                  </Space>
                 </div>
-                <Space>
-                  <Button
-                    type="primary"
-                    size="small"
-                    icon={<PlusOutlined />}
-                    onClick={() => {
-                      groupForm.resetFields();
-                      setIsGroupModalOpen(true);
-                    }}
-                  >
-                    Tạo nhóm
-                  </Button>
-                  <Button
-                    size="small"
-                    icon={<ReloadOutlined />}
-                    onClick={() => {
-                      fetchRooms();
-                      fetchMembers();
-                    }}
-                  />
-                </Space>
-              </div>
 
-              <div style={{ padding: '0 12px', background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
-                <Tabs
-                  activeKey={sidebarTab}
-                  onChange={(key) => setSidebarTab(key as 'chats' | 'members')}
-                  items={[
+                {/* Chuyển đổi nhanh giữa Hỗ trợ Khách hàng và Chat Nội bộ (không bị tràn dấu ...) */}
+                <Segmented
+                  block
+                  value={sidebarTab === 'customers' ? 'customers' : 'internal'}
+                  onChange={(val) => {
+                    const nextTab = val === 'customers' ? 'customers' : 'chats';
+                    setSidebarTab(nextTab);
+                    if (currentCompany) {
+                      sessionStorage.setItem(`chat_sidebar_tab_${currentCompany.id}`, nextTab);
+                    }
+                  }}
+                  options={[
                     {
-                      key: 'chats',
+                      value: 'customers',
                       label: (
                         <Space size={6}>
-                          <MessageOutlined />
-                          <span>Hội thoại ({rooms.length})</span>
+                          <CustomerServiceOutlined />
+                          <span>Khách hàng ({customerConvs.length})</span>
                         </Space>
                       ),
                     },
                     {
-                      key: 'members',
+                      value: 'internal',
                       label: (
                         <Space size={6}>
-                          <TeamOutlined />
-                          <span>Đồng nghiệp ({members.length})</span>
+                          <MessageOutlined />
+                          <span>Nội bộ ({rooms.length})</span>
                         </Space>
                       ),
                     },
@@ -561,8 +807,172 @@ export const ChatWorkspacePage: React.FC = () => {
                 />
               </div>
 
+              {/* Nếu đang ở chế độ Nội bộ thì hiển thị 2 tab Hội thoại / Đồng nghiệp rộng rãi */}
+              {sidebarTab !== 'customers' ? (
+                <div
+                  style={{
+                    padding: '0 16px',
+                    background: '#fff',
+                    borderBottom: '1px solid #f0f0f0',
+                  }}
+                >
+                  <Tabs
+                    activeKey={sidebarTab}
+                    onChange={(key) => {
+                      const nextTab = key as 'chats' | 'members';
+                      setSidebarTab(nextTab);
+                      if (currentCompany) {
+                        sessionStorage.setItem(`chat_sidebar_tab_${currentCompany.id}`, nextTab);
+                      }
+                    }}
+                    items={[
+                      {
+                        key: 'chats',
+                        label: (
+                          <Space size={6}>
+                            <MessageOutlined />
+                            <span>Hội thoại ({rooms.length})</span>
+                          </Space>
+                        ),
+                      },
+                      {
+                        key: 'members',
+                        label: (
+                          <Space size={6}>
+                            <TeamOutlined />
+                            <span>Đồng nghiệp ({members.length})</span>
+                          </Space>
+                        ),
+                      },
+                    ]}
+                  />
+                </div>
+              ) : (
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    background: '#fff',
+                    borderBottom: '1px solid #f0f0f0',
+                  }}
+                >
+                  <Select
+                    placeholder="Lọc theo trạng thái hội thoại (Tất cả)"
+                    allowClear
+                    style={{ width: '100%' }}
+                    value={customerStatusFilter}
+                    onChange={(val) => setCustomerStatusFilter(val)}
+                    options={[
+                      { label: 'Đang mở (OPEN)', value: 'OPEN' },
+                      { label: 'Chờ xử lý (PENDING)', value: 'PENDING' },
+                      { label: 'Đã giải quyết (RESOLVED)', value: 'RESOLVED' },
+                      { label: 'Đã đóng (CLOSED)', value: 'CLOSED' },
+                    ]}
+                  />
+                </div>
+              )}
+
               <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
-                {sidebarTab === 'chats' ? (
+                {sidebarTab === 'customers' ? (
+                  <div>
+
+                    {loadingCustomerConvs ? (
+                      <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                        <Spin tip="Đang tải hội thoại khách hàng..." />
+                      </div>
+                    ) : customerConvs.length === 0 ? (
+                      <Empty
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        description="Chưa có cuộc hội thoại khách hàng nào"
+                        style={{ marginTop: 40 }}
+                      />
+                    ) : (
+                      <List
+                        dataSource={customerConvs}
+                        renderItem={(conv) => {
+                          const isSelected = activeCustomerConv?.id === conv.id;
+                          return (
+                            <List.Item
+                              onClick={() => handleSelectCustomerConv(conv)}
+                              style={{
+                                padding: '10px 12px',
+                                cursor: 'pointer',
+                                borderRadius: 8,
+                                marginBottom: 4,
+                                border: 'none',
+                                background: isSelected ? '#e6f4ff' : 'transparent',
+                                transition: 'all 0.2s',
+                              }}
+                            >
+                              <List.Item.Meta
+                                avatar={
+                                  <Avatar
+                                    style={{
+                                      backgroundColor:
+                                        conv.handlingMode === 'AI' ? '#722ed1' : '#f59e0b',
+                                    }}
+                                    icon={<CustomerServiceOutlined />}
+                                  />
+                                }
+                                title={
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                    }}
+                                  >
+                                    <Text strong style={{ fontSize: 13, maxWidth: 145 }} ellipsis>
+                                      {conv.visitorName || `Visitor #${conv.visitorId}`}
+                                    </Text>
+                                    <Tag
+                                      color={
+                                        conv.status === 'OPEN'
+                                          ? 'green'
+                                          : conv.status === 'RESOLVED'
+                                          ? 'blue'
+                                          : 'default'
+                                      }
+                                      style={{
+                                        fontSize: 10,
+                                        margin: 0,
+                                        padding: '0 4px',
+                                        lineHeight: '18px',
+                                      }}
+                                    >
+                                      {conv.status}
+                                    </Tag>
+                                  </div>
+                                }
+                                description={
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      fontSize: 11,
+                                    }}
+                                  >
+                                    <Text type="secondary" ellipsis style={{ maxWidth: 140 }}>
+                                      {conv.channelName || `Kênh #${conv.channelId}`} •{' '}
+                                      {conv.handlingMode}
+                                    </Text>
+                                    <Text type="secondary" style={{ fontSize: 11 }}>
+                                      {conv.updatedAt
+                                        ? new Date(conv.updatedAt).toLocaleTimeString('vi-VN', {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                          })
+                                        : ''}
+                                    </Text>
+                                  </div>
+                                }
+                              />
+                            </List.Item>
+                          );
+                        }}
+                      />
+                    )}
+                  </div>
+                ) : sidebarTab === 'chats' ? (
                   loadingRooms ? (
                     <div style={{ textAlign: 'center', padding: '40px 0' }}>
                       <Spin tip="Đang tải..." />
@@ -713,7 +1123,215 @@ export const ChatWorkspacePage: React.FC = () => {
 
             {/* CỘT PHẢI: KHUNG CHAT TRỰC TIẾP */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#fff' }}>
-              {activeRoom ? (
+              {sidebarTab === 'customers' ? (
+                activeCustomerConv ? (
+                  <>
+                    <div
+                      style={{
+                        padding: '12px 20px',
+                        borderBottom: '1px solid #f0f0f0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: '#fff',
+                      }}
+                    >
+                      <Space size={12}>
+                        <Avatar
+                          size="large"
+                          style={{
+                            backgroundColor:
+                              activeCustomerConv.handlingMode === 'AI' ? '#722ed1' : '#f59e0b',
+                          }}
+                          icon={<CustomerServiceOutlined />}
+                        />
+                        <div>
+                          <Space size={8}>
+                            <Title level={5} style={{ margin: 0, fontSize: 15 }}>
+                              {activeCustomerConv.visitorName ||
+                                `Visitor #${activeCustomerConv.visitorId}`}
+                            </Title>
+                            <Tag
+                              color={
+                                activeCustomerConv.status === 'OPEN'
+                                  ? 'green'
+                                  : activeCustomerConv.status === 'RESOLVED'
+                                  ? 'blue'
+                                  : 'default'
+                              }
+                            >
+                              {activeCustomerConv.status}
+                            </Tag>
+                            <Tag
+                              color={
+                                activeCustomerConv.handlingMode === 'AI' ? 'purple' : 'cyan'
+                              }
+                              icon={
+                                activeCustomerConv.handlingMode === 'AI' ? (
+                                  <RobotOutlined />
+                                ) : (
+                                  <UserOutlined />
+                                )
+                              }
+                            >
+                              {activeCustomerConv.handlingMode}
+                            </Tag>
+                          </Space>
+                          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                            Kênh: <strong>{activeCustomerConv.channelName || `#${activeCustomerConv.channelId}`}</strong>
+                            {activeCustomerConv.visitorEmail
+                              ? ` • Email: ${activeCustomerConv.visitorEmail}`
+                              : ''}{' '}
+                            • Conversation #{activeCustomerConv.id}
+                          </div>
+                        </div>
+                      </Space>
+
+                      <Space>
+                        <Button
+                          icon={<ReloadOutlined />}
+                          onClick={() => fetchCustomerMessages(activeCustomerConv.id)}
+                          loading={loadingCustomerMessages}
+                        >
+                          Làm mới
+                        </Button>
+                        <Button
+                          type={activeCustomerConv.status !== 'OPEN' ? 'primary' : 'default'}
+                          icon={<HistoryOutlined />}
+                          loading={restoringCustomerConv}
+                          onClick={handleRestoreCustomerConv}
+                        >
+                          Khôi phục (Restore)
+                        </Button>
+                      </Space>
+                    </div>
+
+                    <div
+                      style={{
+                        flex: 1,
+                        padding: '20px',
+                        overflowY: 'auto',
+                        background: '#f8fafc',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 12,
+                      }}
+                    >
+                      {loadingCustomerMessages ? (
+                        <div style={{ textAlign: 'center', margin: 'auto' }}>
+                          <Spin tip="Đang tải lịch sử tin nhắn khách hàng..." />
+                        </div>
+                      ) : customerMessages.length === 0 ? (
+                        <div style={{ margin: 'auto', textAlign: 'center' }}>
+                          <Empty
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                            description="Cuộc hội thoại này chưa có tin nhắn nào từ khách hàng."
+                          />
+                        </div>
+                      ) : (
+                        customerMessages.map((msg) => {
+                          const isVisitor = msg.senderType === 'VISITOR';
+                          return (
+                            <div
+                              key={msg.id}
+                              style={{
+                                display: 'flex',
+                                justifyContent: isVisitor ? 'flex-start' : 'flex-end',
+                                marginBottom: 4,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  maxWidth: '65%',
+                                  padding: '10px 14px',
+                                  borderRadius: isVisitor
+                                    ? '14px 14px 14px 2px'
+                                    : '14px 14px 2px 14px',
+                                  background: isVisitor
+                                    ? '#fff'
+                                    : msg.senderType === 'AI'
+                                    ? '#722ed1'
+                                    : '#1677ff',
+                                  color: isVisitor ? '#1f2937' : '#fff',
+                                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                                  border: isVisitor ? '1px solid #e2e8f0' : 'none',
+                                  wordBreak: 'break-word',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    marginBottom: 4,
+                                    color: isVisitor ? '#d97706' : 'rgba(255,255,255,0.85)',
+                                  }}
+                                >
+                                  {isVisitor
+                                    ? activeCustomerConv.visitorName ||
+                                      `Khách hàng #${msg.senderId || ''}`
+                                    : msg.senderType === 'AI'
+                                    ? 'AI Bot Tự Động'
+                                    : `Nhân viên #${msg.senderId || ''}`}
+                                </div>
+                                <div style={{ fontSize: 14, lineHeight: 1.4 }}>{msg.content}</div>
+                                <div
+                                  style={{
+                                    fontSize: 10,
+                                    textAlign: 'right',
+                                    marginTop: 4,
+                                    color: isVisitor ? '#9ca3af' : 'rgba(255,255,255,0.75)',
+                                  }}
+                                >
+                                  {msg.createdAt
+                                    ? new Date(msg.createdAt).toLocaleTimeString('vi-VN', {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                      })
+                                    : ''}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                      <div ref={messagesEndRef} />
+                    </div>
+                  </>
+                ) : (
+                  <div
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexDirection: 'column',
+                      background: '#f9fafb',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: '50%',
+                        background: '#fef3c7',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: 16,
+                      }}
+                    >
+                      <CustomerServiceOutlined style={{ fontSize: 32, color: '#d97706' }} />
+                    </div>
+                    <Title level={4} style={{ color: '#374151', marginBottom: 8 }}>
+                      Hộp Thư Hỗ Trợ Khách Hàng
+                    </Title>
+                    <Text type="secondary" style={{ maxWidth: 420, textAlign: 'center' }}>
+                      Chọn một cuộc hội thoại khách hàng ở danh sách bên trái để xem lịch sử tin
+                      nhắn hoặc khôi phục phiên trò chuyện.
+                    </Text>
+                  </div>
+                )
+              ) : activeRoom ? (
                 <>
                   <div
                     style={{

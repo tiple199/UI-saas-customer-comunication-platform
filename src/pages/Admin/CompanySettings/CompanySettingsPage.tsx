@@ -15,12 +15,8 @@ import {
   Avatar,
   Spin,
 } from 'antd';
-import {
-  SettingOutlined,
-  SaveOutlined,
-  ReloadOutlined,
-  BankOutlined,
-} from '@ant-design/icons';
+import { BankOutlined, ReloadOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons';
+import { Navigate } from 'react-router-dom';
 import { companyApi } from '../../../api/company';
 import { isSuccess } from '../../../types/api';
 import type { Company, UpdateCompanyRequest } from '../../../types/api';
@@ -34,6 +30,10 @@ export const CompanySettingsPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+
+  // Xác định vai trò của người dùng hiện tại trong công ty
+  const currentUserRole = companyDetail?.userRole || currentCompany?.userRole || 'STAFF';
+  const canEditCompany = currentUserRole === 'OWNER' || currentUserRole === 'ADMIN';
 
   const fetchCompanyDetail = async () => {
     if (!currentCompany) return;
@@ -56,15 +56,20 @@ export const CompanySettingsPage: React.FC = () => {
   };
 
   useEffect(() => {
-    if (currentCompany) {
+    if (currentCompany && canEditCompany) {
       fetchCompanyDetail();
     } else {
       setCompanyDetail(null);
     }
-  }, [currentCompany?.id]);
+  }, [currentCompany?.id, canEditCompany]);
+
+  // Chặn hoàn toàn nếu là thành viên thường (STAFF)
+  if (currentCompany && !canEditCompany) {
+    return <Navigate to="/chat" replace />;
+  }
 
   const handleUpdateCompany = async (values: UpdateCompanyRequest) => {
-    if (!currentCompany) return;
+    if (!currentCompany || !canEditCompany) return;
     try {
       setSaving(true);
       const res = await companyApi.updateCompany(currentCompany.id, {
@@ -128,7 +133,9 @@ export const CompanySettingsPage: React.FC = () => {
                 <Text code>{companyDetail.id}</Text>
               </Descriptions.Item>
               <Descriptions.Item label="Vai trò của bạn">
-                <Tag color="blue">{companyDetail.userRole || currentCompany.userRole || 'OWNER'}</Tag>
+                <Tag color={currentUserRole === 'OWNER' ? 'volcano' : 'orange'}>
+                  {currentUserRole}
+                </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="Trạng thái hiện tại">
                 <Tag color={companyDetail.status === 'ACTIVE' ? 'green' : 'red'}>

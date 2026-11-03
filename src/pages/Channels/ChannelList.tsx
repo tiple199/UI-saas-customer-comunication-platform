@@ -19,6 +19,7 @@ import {
   Tabs,
   Descriptions,
   Divider,
+  Spin,
 } from 'antd';
 import {
   PlusOutlined,
@@ -32,6 +33,11 @@ import {
   RobotOutlined,
   ThunderboltOutlined,
   CheckCircleOutlined,
+  EyeOutlined,
+  SearchOutlined,
+  SendOutlined,
+  HistoryOutlined,
+  MessageOutlined,
 } from '@ant-design/icons';
 import { channelApi } from '../../api/channel';
 import { widgetApi } from '../../api/widget';
@@ -39,6 +45,8 @@ import { isSuccess } from '../../types/api';
 import type {
   Channel,
   ChannelType,
+  Conversation,
+  ConversationMessage,
   CreateChannelRequest,
   UpdateChannelRequest,
   PublicWidgetConfig,
@@ -52,6 +60,19 @@ export const ChannelList: React.FC = () => {
   const { currentCompany } = useAuth();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // State phân trang Server-side (/api/v1/channels/paged)
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalElements, setTotalElements] = useState(0);
+
+  // State tra cứu theo Channel Key (/api/v1/channels/key/{channelKey})
+  const [searchKeyText, setSearchKeyText] = useState('');
+  const [searchingByKey, setSearchingByKey] = useState(false);
+
+  // State Modal xem chi tiết kênh (/api/v1/channels/{id})
+  const [detailChannel, setDetailChannel] = useState<Channel | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
 
   // Modal tạo kênh
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -71,19 +92,28 @@ export const ChannelList: React.FC = () => {
   const [handshaking, setHandshaking] = useState(false);
   const [handshakeForm] = Form.useForm();
 
+  // State cho Restore Conversation & Customer Gửi Message trên Widget Simulator
+  const [restoredConv, setRestoredConv] = useState<Conversation | null>(null);
+  const [widgetMessages, setWidgetMessages] = useState<ConversationMessage[]>([]);
+  const [restoringWidgetConv, setRestoringWidgetConv] = useState(false);
+  const [widgetInputText, setWidgetInputText] = useState('');
+  const [sendingWidgetMsg, setSendingWidgetMsg] = useState(false);
+
   // Loading state cho từng toggle AI Bot
   const [togglingAiId, setTogglingAiId] = useState<number | null>(null);
 
-  const fetchChannels = async () => {
+  const fetchChannels = async (targetPage = page, targetSize = pageSize) => {
     if (!currentCompany) {
       setChannels([]);
+      setTotalElements(0);
       return;
     }
     try {
       setLoading(true);
-      const res = await channelApi.getChannels(currentCompany.id);
+      const res = await channelApi.getChannelsPaged(targetPage - 1, targetSize, currentCompany.id);
       if (isSuccess(res) && res.data) {
-        setChannels(res.data);
+        setChannels(res.data.items || []);
+        setTotalElements(res.data.totalElements || 0);
       }
     } catch (err: any) {
       const errMsg = err.response?.data?.message || 'Không thể tải danh sách kênh kết nối';
@@ -95,11 +125,55 @@ export const ChannelList: React.FC = () => {
 
   useEffect(() => {
     if (currentCompany) {
-      fetchChannels();
+      setPage(1);
+      fetchChannels(1, pageSize);
     } else {
       setChannels([]);
+      setTotalElements(0);
     }
   }, [currentCompany?.id]);
+
+  // Xem chi tiết kênh qua GET /api/v1/channels/{id}
+  const handleViewChannelById = async (channelId: number) => {
+    if (!currentCompany) return;
+    try {
+      setLoadingDetail(true);
+      const res = await channelApi.getChannelById(channelId, currentCompany.id);
+      if (isSuccess(res) && res.data) {
+        setDetailChannel(res.data);
+      } else {
+        message.error(res.message || 'Không thể tải chi tiết kênh');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi tải thông tin chi tiết kênh');
+    } finally {
+      setLoadingDetail(false);
+    }
+  };
+
+  // Tìm kiếm kênh theo Channel Key qua GET /api/v1/channels/key/{channelKey}
+  const handleSearchByChannelKey = async () => {
+    if (!currentCompany) return;
+    const trimmed = searchKeyText.trim();
+    if (!trimmed) {
+      fetchChannels(1, pageSize);
+      return;
+    }
+    try {
+      setSearchingByKey(true);
+      const res = await channelApi.getChannelByKey(trimmed, currentCompany.id);
+      if (isSuccess(res) && res.data) {
+        setDetailChannel(res.data);
+        message.success(`Đã tìm thấy kênh "${res.data.name}"!`);
+      } else {
+        message.warning(res.message || 'Không tìm thấy kênh với mã khóa này');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Không tìm thấy kênh với Channel Key đã nhập');
+    } finally {
+      setSearchingByKey(false);
+    }
+  };
 
   // Tự động tải cấu hình Public Widget khi mở Modal Mã nhúng
   const fetchPublicWidgetConfig = async (channelKey: string) => {
@@ -120,8 +194,67 @@ export const ChannelList: React.FC = () => {
     setEmbedChannel(channel);
     setWidgetConfig(null);
     setHandshakeResult(null);
+    setRestoredConv(null);
+    setWidgetMessages([]);
+    setWidgetInputText('');
     handshakeForm.resetFields();
     fetchPublicWidgetConfig(channel.channelKey);
+  };
+
+  const handleRestoreWidgetConversation = async (channelKey: string, visitorToken: string) => {
+    if (!channelKey || !visitorToken) {
+      message.warning('Vui lòng thực hiện Handshake hoặc nhập Visitor Token trước!');
+      return;
+    }
+    try {
+      setRestoringWidgetConv(true);
+      const res = await widgetApi.restoreConversation(channelKey, visitorToken);
+      if (isSuccess(res) && res.data) {
+        setRestoredConv(res.data.conversation);
+        setWidgetMessages(res.data.messages || []);
+        message.success(
+          `Đã khôi phục hội thoại (${res.data.messages?.length || 0} tin nhắn lịch sử)!`
+        );
+      } else {
+        message.error(res.message || 'Không thể khôi phục cuộc hội thoại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi khôi phục cuộc hội thoại từ Widget');
+    } finally {
+      setRestoringWidgetConv(false);
+    }
+  };
+
+  const handleSendWidgetMessage = async () => {
+    const token =
+      handshakeResult?.visitorToken || handshakeForm.getFieldValue('visitorToken')?.trim();
+    if (!embedChannel || !token) {
+      message.warning('Vui lòng thực hiện Handshake trước khi gửi tin nhắn!');
+      return;
+    }
+    const content = widgetInputText.trim();
+    if (!content) return;
+
+    try {
+      setSendingWidgetMsg(true);
+      const res = await widgetApi.sendMessage({
+        channelKey: embedChannel.channelKey,
+        visitorToken: token,
+        content,
+        messageType: 'TEXT',
+      });
+      if (isSuccess(res) && res.data) {
+        setWidgetInputText('');
+        setWidgetMessages((prev) => [...prev, res.data]);
+        message.success('Khách hàng đã gửi tin nhắn thành công!');
+      } else {
+        message.error(res.message || 'Gửi tin nhắn thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi gửi tin nhắn từ Widget');
+    } finally {
+      setSendingWidgetMsg(false);
+    }
   };
 
   const handleTestHandshake = async (values: { name?: string; email?: string; visitorToken?: string }) => {
@@ -138,6 +271,8 @@ export const ChannelList: React.FC = () => {
         setHandshakeResult(res.data);
         handshakeForm.setFieldValue('visitorToken', res.data.visitorToken);
         message.success('Kết nối Handshake thành công với Public Widget API!');
+        // Tự động gọi Restore Conversation để lấy lịch sử tin nhắn hiện tại của Visitor
+        handleRestoreWidgetConversation(embedChannel.channelKey, res.data.visitorToken);
       } else {
         message.error(res.message || 'Handshake thất bại');
       }
@@ -163,7 +298,7 @@ export const ChannelList: React.FC = () => {
         message.success(res.message || 'Tạo kênh kết nối thành công!');
         setIsModalOpen(false);
         form.resetFields();
-        fetchChannels();
+        fetchChannels(page, pageSize);
       } else {
         message.error(res.message || res.error || 'Tạo kênh thất bại!');
       }
@@ -183,7 +318,7 @@ export const ChannelList: React.FC = () => {
       if (isSuccess(res)) {
         message.success('Cập nhật kênh kết nối thành công!');
         setEditingChannel(null);
-        fetchChannels();
+        fetchChannels(page, pageSize);
       } else {
         message.error(res.message || 'Cập nhật kênh thất bại!');
       }
@@ -222,7 +357,7 @@ export const ChannelList: React.FC = () => {
       const res = await channelApi.regenerateChannelKey(channelId, currentCompany.id);
       if (isSuccess(res)) {
         message.success('Đã tạo lại khóa kết nối mới thành công!');
-        fetchChannels();
+        fetchChannels(page, pageSize);
       } else {
         message.error(res.message || 'Tạo lại khóa thất bại');
       }
@@ -238,7 +373,7 @@ export const ChannelList: React.FC = () => {
       const res = await channelApi.deleteChannel(channelId, currentCompany.id);
       if (isSuccess(res)) {
         message.success('Đã xóa kênh kết nối');
-        fetchChannels();
+        fetchChannels(page, pageSize);
       } else {
         message.error(res.message || 'Xóa kênh thất bại');
       }
@@ -342,6 +477,14 @@ export const ChannelList: React.FC = () => {
             </Tooltip>
           )}
 
+          <Tooltip title="Xem chi tiết kênh theo ID">
+            <Button
+              type="text"
+              icon={<EyeOutlined style={{ color: '#10b981' }} />}
+              onClick={() => handleViewChannelById(record.id)}
+            />
+          </Tooltip>
+
           <Tooltip title="Sửa tên kênh">
             <Button
               type="text"
@@ -415,7 +558,29 @@ export const ChannelList: React.FC = () => {
       }
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchChannels} loading={loading}>
+          <Space.Compact>
+            <Input
+              placeholder="Tra cứu theo Channel Key..."
+              value={searchKeyText}
+              onChange={(e) => setSearchKeyText(e.target.value)}
+              onPressEnter={handleSearchByChannelKey}
+              allowClear
+              style={{ width: 220 }}
+            />
+            <Button
+              icon={<SearchOutlined />}
+              loading={searchingByKey}
+              onClick={handleSearchByChannelKey}
+            >
+              Tra cứu
+            </Button>
+          </Space.Compact>
+
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => fetchChannels(page, pageSize)}
+            loading={loading}
+          >
             Làm mới
           </Button>
           <Button
@@ -437,9 +602,78 @@ export const ChannelList: React.FC = () => {
         columns={columns}
         rowKey="id"
         loading={loading}
-        pagination={{ pageSize: 10 }}
+        pagination={{
+          current: page,
+          pageSize: pageSize,
+          total: totalElements,
+          showSizeChanger: true,
+          showTotal: (total) => `Tổng cộng ${total} kênh`,
+          onChange: (newPage, newSize) => {
+            setPage(newPage);
+            setPageSize(newSize);
+            fetchChannels(newPage, newSize);
+          },
+        }}
         locale={{ emptyText: 'Chưa có kênh kết nối nào trong công ty này' }}
       />
+
+      {/* Modal Xem Chi Tiết Kênh (GET /api/v1/channels/{id} & GET /api/v1/channels/key/{channelKey}) */}
+      <Modal
+        title={`Chi Tiết Kênh Kết Nối #${detailChannel?.id || ''}`}
+        open={!!detailChannel || loadingDetail}
+        onCancel={() => setDetailChannel(null)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setDetailChannel(null)}>
+            Đóng
+          </Button>,
+        ]}
+      >
+        {loadingDetail ? (
+          <div style={{ textAlign: 'center', padding: '30px 0' }}>
+            <Spin tip="Đang tải chi tiết kênh..." />
+          </div>
+        ) : (
+          detailChannel && (
+            <Descriptions bordered size="small" column={1}>
+              <Descriptions.Item label="ID Kênh">
+                <Text code>{detailChannel.id}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Tên Kênh">
+                <Text strong>{detailChannel.name}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Loại Kênh">
+                {getChannelTypeTag(detailChannel.type)}
+              </Descriptions.Item>
+              <Descriptions.Item label="Channel Key">
+                <Text copyable code>
+                  {detailChannel.channelKey}
+                </Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Trạng Thái">
+                <Badge
+                  status={detailChannel.status === 'ACTIVE' ? 'success' : 'default'}
+                  text={detailChannel.status || 'ACTIVE'}
+                />
+              </Descriptions.Item>
+              <Descriptions.Item label="AI Bot Tự Động">
+                <Tag color={detailChannel.aiEnabled ? 'green' : 'default'}>
+                  {detailChannel.aiEnabled ? 'Đang bật (Enabled)' : 'Đang tắt (Disabled)'}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Cấu Hình Bổ Sung (JSON)">
+                <pre style={{ margin: 0, fontSize: 12 }}>
+                  {JSON.stringify(detailChannel.config || {}, null, 2)}
+                </pre>
+              </Descriptions.Item>
+              <Descriptions.Item label="Ngày Tạo">
+                {detailChannel.createdAt
+                  ? new Date(detailChannel.createdAt).toLocaleString('vi-VN')
+                  : '-'}
+              </Descriptions.Item>
+            </Descriptions>
+          )
+        )}
+      </Modal>
 
       {/* Modal Tạo Kênh */}
       <Modal
@@ -660,7 +894,7 @@ export const ChannelList: React.FC = () => {
                         type="success"
                         showIcon
                         icon={<CheckCircleOutlined />}
-                        message="Kết quả Handshake từ Backend"
+                        message="Kết quả Handshake từ Backend (Visitor & Conversation)"
                         description={
                           <div style={{ fontSize: 12, lineHeight: 1.8 }}>
                             <div>
@@ -676,6 +910,17 @@ export const ChannelList: React.FC = () => {
                               </Text>
                             </div>
                             <div>
+                              <strong>Conversation ID:</strong>{' '}
+                              <Text code>{handshakeResult.conversationId}</Text>{' '}
+                              <Tag color="green">{handshakeResult.conversationStatus}</Tag>
+                              <Tag color={handshakeResult.handlingMode === 'AI' ? 'purple' : 'cyan'}>
+                                Chế độ: {handshakeResult.handlingMode}
+                              </Tag>
+                              <Tag color={handshakeResult.isNewConversation ? 'geekblue' : 'default'}>
+                                {handshakeResult.isNewConversation ? 'Hội thoại mới' : 'Hội thoại tiếp tục'}
+                              </Tag>
+                            </div>
+                            <div>
                               <strong>Lời chào:</strong> {handshakeResult.welcomeMessage}
                             </div>
                             <div>
@@ -686,6 +931,140 @@ export const ChannelList: React.FC = () => {
                         }
                       />
                     )}
+
+                    <Divider style={{ margin: '14px 0' }} />
+
+                    {/* 3 & 4. Khôi phục Conversation & Giả lập Customer gửi Message */}
+                    <div>
+                      <Space
+                        style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }}
+                      >
+                        <Text strong>
+                          3. Khôi phục Hội thoại & Gửi tin nhắn (`restore` & `POST /messages`)
+                        </Text>
+                        <Button
+                          size="small"
+                          icon={<HistoryOutlined />}
+                          loading={restoringWidgetConv}
+                          onClick={() => {
+                            const token =
+                              handshakeResult?.visitorToken ||
+                              handshakeForm.getFieldValue('visitorToken')?.trim();
+                            if (embedChannel) {
+                              handleRestoreWidgetConversation(embedChannel.channelKey, token);
+                            }
+                          }}
+                        >
+                          Restore Conversation
+                        </Button>
+                      </Space>
+
+                      {restoredConv && (
+                        <div style={{ marginBottom: 8, fontSize: 12 }}>
+                          <Space wrap>
+                            <Tag color="blue">Conversation #{restoredConv.id}</Tag>
+                            <Tag color="green">Trạng thái: {restoredConv.status}</Tag>
+                            <Tag color="purple">Xử lý: {restoredConv.handlingMode}</Tag>
+                            <Text type="secondary">
+                              Khách: {restoredConv.visitorName || 'Khách truy cập'}
+                            </Text>
+                          </Space>
+                        </div>
+                      )}
+
+                      <div
+                        style={{
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 8,
+                          background: '#f8fafc',
+                          padding: 12,
+                          maxHeight: 220,
+                          overflowY: 'auto',
+                          marginBottom: 10,
+                        }}
+                      >
+                        {widgetMessages.length === 0 ? (
+                          <div style={{ textAlign: 'center', color: '#94a3b8', padding: '16px 0' }}>
+                            <MessageOutlined style={{ fontSize: 20, marginBottom: 4 }} />
+                            <div style={{ fontSize: 12 }}>
+                              Chưa có tin nhắn nào. Hãy thực hiện Handshake và gửi tin nhắn bên dưới!
+                            </div>
+                          </div>
+                        ) : (
+                          widgetMessages.map((m) => {
+                            const isVisitor = m.senderType === 'VISITOR';
+                            return (
+                              <div
+                                key={m.id}
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: isVisitor ? 'flex-end' : 'flex-start',
+                                  marginBottom: 8,
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    maxWidth: '75%',
+                                    padding: '8px 12px',
+                                    borderRadius: 10,
+                                    background: isVisitor ? '#1677ff' : '#fff',
+                                    color: isVisitor ? '#fff' : '#1e293b',
+                                    border: isVisitor ? 'none' : '1px solid #e2e8f0',
+                                    fontSize: 13,
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      fontSize: 10,
+                                      opacity: 0.8,
+                                      marginBottom: 2,
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    {m.senderType} #{m.senderId || ''}
+                                  </div>
+                                  <div>{m.content}</div>
+                                  <div
+                                    style={{
+                                      fontSize: 10,
+                                      opacity: 0.7,
+                                      textAlign: 'right',
+                                      marginTop: 2,
+                                    }}
+                                  >
+                                    {m.createdAt
+                                      ? new Date(m.createdAt).toLocaleTimeString('vi-VN', {
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                        })
+                                      : ''}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+
+                      <Space.Compact style={{ width: '100%' }}>
+                        <Input
+                          placeholder="Nhập tin nhắn giả lập từ Khách hàng (Visitor)..."
+                          value={widgetInputText}
+                          onChange={(e) => setWidgetInputText(e.target.value)}
+                          onPressEnter={handleSendWidgetMessage}
+                          disabled={!handshakeResult && !handshakeForm.getFieldValue('visitorToken')}
+                        />
+                        <Button
+                          type="primary"
+                          icon={<SendOutlined />}
+                          loading={sendingWidgetMsg}
+                          onClick={handleSendWidgetMessage}
+                          disabled={!handshakeResult && !handshakeForm.getFieldValue('visitorToken')}
+                        >
+                          Customer Gửi
+                        </Button>
+                      </Space.Compact>
+                    </div>
                   </div>
                 </div>
               ),

@@ -6,11 +6,11 @@ import {
   Space,
   Typography,
   Dropdown,
-  Select,
   Button,
   Modal,
   Form,
   Input,
+  Tag,
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -24,6 +24,9 @@ import {
   TeamOutlined,
   WechatOutlined,
   SettingOutlined,
+  CustomerServiceOutlined,
+  DownOutlined,
+  CheckOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -80,6 +83,8 @@ export const AdminLayout: React.FC = () => {
 
   const selectedKey = location.pathname.includes('/admin/members')
     ? 'members'
+    : location.pathname.includes('/admin/conversations')
+    ? 'conversations'
     : location.pathname.includes('/admin/chat-rooms')
     ? 'chat-rooms'
     : location.pathname.includes('/admin/settings')
@@ -140,33 +145,133 @@ export const AdminLayout: React.FC = () => {
           </Button>
 
           {/* Chọn / tạo công ty */}
-          <Space align="center" style={{ background: 'rgba(255,255,255,0.08)', padding: '4px 10px', borderRadius: 8 }}>
-            <BankOutlined style={{ color: '#60a5fa', fontSize: 16 }} />
+          <Space size={8} align="center">
             {companies.length > 0 ? (
-              <Select
-                value={currentCompany?.id}
-                onChange={(val) => switchCompany(val)}
-                placeholder="Chọn công ty"
-                style={{ width: 180 }}
-                variant="borderless"
-                popupMatchSelectWidth={false}
-                options={companies.map((c) => ({
-                  label: `${c.name} (${c.userRole || 'MEMBER'})`,
-                  value: c.id,
-                }))}
-              />
+              <Dropdown
+                trigger={['click']}
+                placement="bottomLeft"
+                menu={{
+                  items: [
+                    {
+                      key: 'company-header',
+                      disabled: true,
+                      label: (
+                        <Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>
+                          CHUYỂN ĐỔI CÔNG TY LÀM VIỆC
+                        </Text>
+                      ),
+                    },
+                    ...companies.map((c) => {
+                      const isCurrent = c.id === currentCompany?.id;
+                      return {
+                        key: String(c.id),
+                        onClick: () => {
+                          if (!isCurrent) switchCompany(c.id);
+                        },
+                        label: (
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              minWidth: 210,
+                              gap: 12,
+                              padding: '2px 0',
+                            }}
+                          >
+                            <Space size={8}>
+                              <BankOutlined
+                                style={{ color: isCurrent ? '#1677ff' : '#64748b' }}
+                              />
+                              <Text strong={isCurrent} style={{ color: isCurrent ? '#1677ff' : undefined }}>
+                                {c.name}
+                              </Text>
+                            </Space>
+                            <Space size={6}>
+                              <Tag
+                                color={
+                                  c.userRole === 'OWNER'
+                                    ? 'gold'
+                                    : c.userRole === 'ADMIN'
+                                    ? 'blue'
+                                    : 'default'
+                                }
+                                style={{ margin: 0, fontSize: 10, lineHeight: '18px' }}
+                              >
+                                {c.userRole || 'STAFF'}
+                              </Tag>
+                              {isCurrent && <CheckOutlined style={{ color: '#1677ff', fontSize: 12 }} />}
+                            </Space>
+                          </div>
+                        ),
+                      };
+                    }),
+                    { type: 'divider' as const },
+                    {
+                      key: 'create-new-company',
+                      icon: <PlusOutlined style={{ color: '#1677ff' }} />,
+                      label: (
+                        <Text strong style={{ color: '#1677ff' }}>
+                          Tạo công ty mới...
+                        </Text>
+                      ),
+                      onClick: () => setIsCompanyModalOpen(true),
+                    },
+                  ],
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    background: 'rgba(255, 255, 255, 0.14)',
+                    border: '1px solid rgba(255, 255, 255, 0.25)',
+                    padding: '5px 12px',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    lineHeight: 1.2,
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <BankOutlined style={{ color: '#60a5fa', fontSize: 15 }} />
+                  <span style={{ color: '#ffffff', fontWeight: 600, fontSize: 13 }}>
+                    {currentCompany?.name || 'Chọn công ty'}
+                  </span>
+                  {currentCompany?.userRole && (
+                    <span
+                      style={{
+                        background:
+                          currentCompany.userRole === 'OWNER'
+                            ? 'rgba(250, 173, 20, 0.25)'
+                            : 'rgba(22, 119, 255, 0.35)',
+                        color: currentCompany.userRole === 'OWNER' ? '#ffd666' : '#91caff',
+                        border:
+                          currentCompany.userRole === 'OWNER'
+                            ? '1px solid rgba(250, 173, 20, 0.45)'
+                            : '1px solid rgba(145, 202, 255, 0.4)',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      {currentCompany.userRole}
+                    </span>
+                  )}
+                  <DownOutlined style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }} />
+                </div>
+              </Dropdown>
             ) : (
-              <Text style={{ color: '#fbbf24', fontSize: 13 }}>Chưa có công ty</Text>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => setIsCompanyModalOpen(true)}
+              >
+                Tạo Công Ty Mới
+              </Button>
             )}
-            <Button
-              type="primary"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={() => setIsCompanyModalOpen(true)}
-              style={{ fontSize: 12, height: 26 }}
-            >
-              Tạo
-            </Button>
           </Space>
 
           {/* User profile dropdown */}
@@ -203,6 +308,12 @@ export const AdminLayout: React.FC = () => {
                 icon: <ApiOutlined />,
                 label: 'Kênh Giao Tiếp',
                 onClick: () => navigate('/admin/channels'),
+              },
+              {
+                key: 'conversations',
+                icon: <CustomerServiceOutlined />,
+                label: 'Hội Thoại Khách Hàng',
+                onClick: () => navigate('/admin/conversations'),
               },
               {
                 key: 'members',
