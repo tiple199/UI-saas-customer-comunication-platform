@@ -7,6 +7,7 @@ import type {
   CreateConversationRequest,
   PageResponse,
   RestoreConversationResponse,
+  SendMessageRequest,
 } from '../types/api';
 
 export const conversationApi = {
@@ -79,6 +80,49 @@ export const conversationApi = {
     const params = companyId ? { companyId } : {};
     const response = await apiClient.get<ApiResponse<ConversationMessage[]>>(
       `/api/v1/conversations/${id}/messages`,
+      { params }
+    );
+    return response.data;
+  },
+
+  assignStaff: async (
+    id: number,
+    assigneeId?: number | null,
+    companyId?: number
+  ): Promise<ApiResponse<Conversation>> => {
+    const params = companyId ? { companyId } : {};
+    const payload = assigneeId ? { assigneeId } : {};
+    const response = await apiClient.post<ApiResponse<Conversation>>(
+      `/api/v1/conversations/${id}/assign`,
+      payload,
+      { params }
+    );
+    return response.data;
+  },
+
+  sendStaffMessage: async (
+    id: number,
+    payload: SendMessageRequest,
+    companyId?: number
+  ): Promise<ApiResponse<ConversationMessage>> => {
+    const params = companyId ? { companyId } : {};
+    const response = await apiClient.post<ApiResponse<ConversationMessage>>(
+      `/api/v1/conversations/${id}/messages`,
+      payload,
+      { params }
+    );
+    return response.data;
+  },
+
+  updateStatus: async (
+    id: number,
+    status: ConversationStatus,
+    companyId?: number
+  ): Promise<ApiResponse<Conversation>> => {
+    const params = companyId ? { companyId } : {};
+    const response = await apiClient.patch<ApiResponse<Conversation>>(
+      `/api/v1/conversations/${id}/status`,
+      { status },
       { params }
     );
     return response.data;

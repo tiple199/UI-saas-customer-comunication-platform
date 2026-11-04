@@ -30,8 +30,10 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { conversationApi } from '../../../api/conversation';
+import { companyApi } from '../../../api/company';
 import { isSuccess } from '../../../types/api';
 import type {
+  CompanyMember,
   Conversation,
   ConversationMessage,
   ConversationStatus,
@@ -47,6 +49,7 @@ export const ConversationAdminList: React.FC = () => {
   const navigate = useNavigate();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [companyMembers, setCompanyMembers] = useState<CompanyMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -58,6 +61,8 @@ export const ConversationAdminList: React.FC = () => {
   const [convMessages, setConvMessages] = useState<ConversationMessage[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [restoringId, setRestoringId] = useState<number | null>(null);
+  const [assigningId, setAssigningId] = useState<number | null>(null);
+  const [updatingStatusId, setUpdatingStatusId] = useState<number | null>(null);
 
   // Modal tạo Conversation thủ công (POST /api/v1/conversations)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -72,15 +77,21 @@ export const ConversationAdminList: React.FC = () => {
     if (!currentCompany) return;
     try {
       setLoading(true);
-      const res = await conversationApi.getConversationsPaged(
-        targetPage - 1,
-        targetSize,
-        targetStatus,
-        currentCompany.id
-      );
+      const [res, membersRes] = await Promise.all([
+        conversationApi.getConversationsPaged(
+          targetPage - 1,
+          targetSize,
+          targetStatus,
+          currentCompany.id
+        ),
+        companyApi.getCompanyMembers(currentCompany.id).catch(() => null),
+      ]);
       if (isSuccess(res) && res.data) {
         setConversations(res.data.items || []);
         setTotalElements(res.data.totalElements || 0);
+      }
+      if (membersRes && isSuccess(membersRes) && membersRes.data) {
+        setCompanyMembers(membersRes.data);
       }
     } catch (err: any) {
       message.error(err.response?.data?.message || 'Không thể tải danh sách hội thoại khách hàng');
@@ -144,6 +155,51 @@ export const ConversationAdminList: React.FC = () => {
     }
   };
 
+  const handleAssignStaff = async (convId: number, assigneeId: number) => {
+    if (!currentCompany) return;
+    try {
+      setAssigningId(convId);
+      const res = await conversationApi.assignStaff(convId, assigneeId, currentCompany.id);
+      if (isSuccess(res) && res.data) {
+        const assignedMember = companyMembers.find((m) => m.userId === res.data.assigneeId);
+        message.success(
+          `Đã gán hội thoại #${convId} cho ${assignedMember?.fullName || `Staff #${assigneeId}`}!`
+        );
+        setConversations((prev) => prev.map((c) => (c.id === convId ? res.data : c)));
+        if (detailConv?.id === convId) {
+          setDetailConv(res.data);
+        }
+      } else {
+        message.error(res.message || 'Gán nhân viên thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi gán nhân viên phụ trách');
+    } finally {
+      setAssigningId(null);
+    }
+  };
+
+  const handleUpdateStatus = async (convId: number, newStatus: ConversationStatus) => {
+    if (!currentCompany) return;
+    try {
+      setUpdatingStatusId(convId);
+      const res = await conversationApi.updateStatus(convId, newStatus, currentCompany.id);
+      if (isSuccess(res) && res.data) {
+        message.success(`Đã chuyển trạng thái hội thoại #${convId} sang ${res.data.status}!`);
+        setConversations((prev) => prev.map((c) => (c.id === convId ? res.data : c)));
+        if (detailConv?.id === convId) {
+          setDetailConv(res.data);
+        }
+      } else {
+        message.error(res.message || 'Cập nhật trạng thái thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi cập nhật trạng thái hội thoại');
+    } finally {
+      setUpdatingStatusId(null);
+    }
+  };
+
   const handleCreateConversation = async (values: CreateConversationRequest) => {
     if (!currentCompany) return;
     try {
@@ -181,12 +237,12 @@ export const ConversationAdminList: React.FC = () => {
 
   const getHandlingModeTag = (mode: HandlingMode) =>
     mode === 'AI' ? (
-      <Tag color="purple" icon={<RobotOutlined />}>
+      <Tag color="purple" icon={<RobotOutlined />} style={{ margin: 0 }}>
         AI BOT
       </Tag>
     ) : (
-      <Tag color="cyan" icon={<UserOutlined />}>
-        NHÂN VIÊN (HUMAN)
+      <Tag color="cyan" icon={<UserOutlined />} style={{ margin: 0 }}>
+        NHÂN VIÊN
       </Tag>
     );
 
@@ -195,13 +251,15 @@ export const ConversationAdminList: React.FC = () => {
       title: 'ID',
       dataIndex: 'id',
       key: 'id',
-      width: 70,
+      width: 65,
+      render: (id: number) => <Text strong>#{id}</Text>,
     },
     {
-      title: 'Khách hàng (Visitor)',
+      title: 'Khách hàng',
       key: 'visitor',
+      width: 170,
       render: (_: any, record: Conversation) => (
-        <div>
+        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           <Text strong>{record.visitorName || `Visitor #${record.visitorId}`}</Text>
           {record.visitorEmail && (
             <div style={{ fontSize: 12, color: '#64748b' }}>{record.visitorEmail}</div>
@@ -212,53 +270,107 @@ export const ConversationAdminList: React.FC = () => {
     {
       title: 'Kênh kết nối',
       key: 'channel',
+      width: 130,
       render: (_: any, record: Conversation) => (
-        <Tag color="geekblue">{record.channelName || `Channel #${record.channelId}`}</Tag>
+        <Tag color="geekblue" style={{ margin: 0 }}>
+          {record.channelName || `Channel #${record.channelId}`}
+        </Tag>
       ),
     },
     {
       title: 'Chế độ xử lý',
       dataIndex: 'handlingMode',
       key: 'handlingMode',
+      width: 125,
       render: (mode: HandlingMode) => getHandlingModeTag(mode),
+    },
+    {
+      title: 'Nhân viên phụ trách',
+      key: 'assigneeId',
+      width: 195,
+      render: (_: any, record: Conversation) => (
+        <Select
+          size="small"
+          placeholder="Chọn nhân viên..."
+          style={{ width: '100%', maxWidth: 185 }}
+          popupMatchSelectWidth={false}
+          value={record.assigneeId ?? undefined}
+          loading={assigningId === record.id}
+          onChange={(val) => handleAssignStaff(record.id, val)}
+          options={companyMembers
+            .filter((m) => m.status === 'ACTIVE')
+            .map((m) => ({
+              label: `${m.fullName} (${m.role})`,
+              value: m.userId,
+            }))}
+        />
+      ),
     },
     {
       title: 'Trạng thái',
       dataIndex: 'status',
       key: 'status',
-      render: (status: ConversationStatus) => getStatusTag(status),
+      width: 155,
+      render: (status: ConversationStatus, record: Conversation) => (
+        <Select
+          size="small"
+          style={{ width: 145 }}
+          popupMatchSelectWidth={false}
+          value={status}
+          loading={updatingStatusId === record.id}
+          onChange={(val) => handleUpdateStatus(record.id, val)}
+          options={[
+            { label: '🟢 Đang mở', value: 'OPEN' },
+            { label: '🟡 Chờ xử lý', value: 'PENDING' },
+            { label: '🔵 Đã giải quyết', value: 'RESOLVED' },
+            { label: '⚪ Đã đóng', value: 'CLOSED' },
+          ]}
+        />
+      ),
     },
     {
       title: 'Cập nhật lúc',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
-      render: (val: string) => (val ? new Date(val).toLocaleString('vi-VN') : '-'),
+      width: 145,
+      render: (val: string) => (
+        <span style={{ fontSize: 12, color: '#475569', whiteSpace: 'nowrap' }}>
+          {val ? new Date(val).toLocaleString('vi-VN') : '-'}
+        </span>
+      ),
     },
     {
       title: 'Hành động',
       key: 'action',
+      width: 190,
       render: (_: any, record: Conversation) => (
-        <Space>
+        <Space size={4}>
           <Button
             type="link"
+            size="small"
             icon={<EyeOutlined />}
             onClick={() => handleViewDetail(record)}
+            style={{ padding: '0 6px' }}
           >
-            Xem tin nhắn
+            Chi tiết
           </Button>
           {record.status !== 'OPEN' && (
             <Button
               type="link"
+              size="small"
               icon={<HistoryOutlined />}
               loading={restoringId === record.id}
               onClick={() => handleRestoreConversation(record.id)}
+              style={{ padding: '0 6px' }}
             >
-              Restore
+              Mở lại
             </Button>
           )}
           <Button
             type="link"
+            size="small"
             icon={<WechatOutlined />}
+            style={{ padding: '0 6px' }}
             onClick={() => {
               if (currentCompany) {
                 sessionStorage.setItem(
@@ -270,7 +382,7 @@ export const ConversationAdminList: React.FC = () => {
               navigate('/chat');
             }}
           >
-            Mở tại Workspace
+            Workspace
           </Button>
         </Space>
       ),
@@ -351,6 +463,7 @@ export const ConversationAdminList: React.FC = () => {
         columns={columns}
         rowKey="id"
         loading={loading}
+        scroll={{ x: 1050 }}
         pagination={{
           current: page,
           pageSize: pageSize,

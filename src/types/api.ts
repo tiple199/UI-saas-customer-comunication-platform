@@ -201,13 +201,14 @@ export interface Conversation {
   id: number;
   status: ConversationStatus;
   handlingMode: HandlingMode;
+  assigneeId?: number | null;
   visitorId: number;
+  visitorToken?: string;
   visitorName?: string;
   visitorEmail?: string;
   channelId: number;
   channelName?: string;
-  assignedAgentId?: number | null;
-  assignedAgentName?: string | null;
+  channelType?: ChannelType;
   companyId: number;
   createdAt?: string;
   updatedAt?: string;

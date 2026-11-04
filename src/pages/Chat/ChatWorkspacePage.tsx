@@ -47,6 +47,7 @@ import { useNavigate } from 'react-router-dom';
 import { chatRoomApi } from '../../api/chatRoom';
 import { companyApi } from '../../api/company';
 import { conversationApi } from '../../api/conversation';
+import { stompWsClient } from '../../api/wsClient';
 import { isSuccess } from '../../types/api';
 import type {
   ChatRoom,
@@ -111,6 +112,10 @@ export const ChatWorkspacePage: React.FC = () => {
   const [customerMessages, setCustomerMessages] = useState<ConversationMessage[]>([]);
   const [loadingCustomerMessages, setLoadingCustomerMessages] = useState(false);
   const [restoringCustomerConv, setRestoringCustomerConv] = useState(false);
+  const [assigningCustomerConv, setAssigningCustomerConv] = useState(false);
+  const [updatingCustomerStatus, setUpdatingCustomerStatus] = useState(false);
+  const [customerInputContent, setCustomerInputContent] = useState('');
+  const [sendingCustomerMsg, setSendingCustomerMsg] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -247,6 +252,103 @@ export const ChatWorkspacePage: React.FC = () => {
     }
   };
 
+  const handleAssignCustomerConv = async (assigneeId?: number) => {
+    if (!activeCustomerConv || !currentCompany) return;
+    try {
+      setAssigningCustomerConv(true);
+      const res = await conversationApi.assignStaff(
+        activeCustomerConv.id,
+        assigneeId,
+        currentCompany.id
+      );
+      if (isSuccess(res) && res.data) {
+        const assignedMember = members.find((m) => m.userId === res.data.assigneeId);
+        message.success(
+          `Đã phân công phụ trách cho ${assignedMember?.fullName || `Staff #${res.data.assigneeId}`}!`
+        );
+        setActiveCustomerConv(res.data);
+        setCustomerConvs((prev) =>
+          prev.map((c) => (c.id === res.data.id ? res.data : c))
+        );
+      } else {
+        message.error(res.message || 'Phân công nhân viên thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi gán nhân viên phụ trách');
+    } finally {
+      setAssigningCustomerConv(false);
+    }
+  };
+
+  const handleUpdateCustomerStatus = async (newStatus: ConversationStatus) => {
+    if (!activeCustomerConv || !currentCompany) return;
+    try {
+      setUpdatingCustomerStatus(true);
+      const res = await conversationApi.updateStatus(
+        activeCustomerConv.id,
+        newStatus,
+        currentCompany.id
+      );
+      if (isSuccess(res) && res.data) {
+        message.success(`Đã cập nhật trạng thái hội thoại sang ${res.data.status}!`);
+        setActiveCustomerConv(res.data);
+        setCustomerConvs((prev) => {
+          if (customerStatusFilter && res.data.status !== customerStatusFilter) {
+            return prev.filter((c) => c.id !== res.data.id);
+          }
+          return prev.map((c) => (c.id === res.data.id ? res.data : c));
+        });
+      } else {
+        message.error(res.message || 'Cập nhật trạng thái thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi cập nhật trạng thái hội thoại');
+    } finally {
+      setUpdatingCustomerStatus(false);
+    }
+  };
+
+  const handleSendCustomerReply = async () => {
+    if (!activeCustomerConv || !customerInputContent.trim() || !currentCompany) return;
+    const textToSend = customerInputContent.trim();
+    setCustomerInputContent('');
+    try {
+      setSendingCustomerMsg(true);
+      const res = await conversationApi.sendStaffMessage(
+        activeCustomerConv.id,
+        {
+          content: textToSend,
+          messageType: 'TEXT',
+        },
+        currentCompany.id
+      );
+      if (isSuccess(res) && res.data) {
+        setCustomerMessages((prev) =>
+          prev.some((m) => m.id === res.data.id) ? prev : [...prev, res.data]
+        );
+        // Cập nhật trạng thái cuộc hội thoại (assigneeId & handlingMode = HUMAN)
+        const updatedConv: Conversation = {
+          ...activeCustomerConv,
+          status: 'OPEN',
+          handlingMode: 'HUMAN',
+          assigneeId: activeCustomerConv.assigneeId ?? user?.id,
+          updatedAt: res.data.createdAt,
+        };
+        setActiveCustomerConv(updatedConv);
+        setCustomerConvs((prev) =>
+          prev.map((c) => (c.id === updatedConv.id ? updatedConv : c))
+        );
+        setTimeout(scrollToBottom, 50);
+      } else {
+        message.error(res.message || 'Gửi tin nhắn trả lời thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi gửi tin nhắn trả lời khách hàng');
+    } finally {
+      setSendingCustomerMsg(false);
+    }
+  };
+
   const fetchMessages = async (roomId: number) => {
     if (!currentCompany) return;
     try {
@@ -359,6 +461,70 @@ export const ChatWorkspacePage: React.FC = () => {
       fetchCustomerConversations(customerStatusFilter);
     }
   }, [customerStatusFilter]);
+
+  // WebSocket Realtime: Lắng nghe danh sách Conversation của công ty cập nhật tức thì
+  useEffect(() => {
+    if (!currentCompany) return;
+    const unsubscribe = stompWsClient.subscribe<Conversation>(
+      `/topic/companies/${currentCompany.id}/conversations`,
+      (updatedConv) => {
+        if (!updatedConv || !updatedConv.id) return;
+        setCustomerConvs((prev) => {
+          if (customerStatusFilter && updatedConv.status !== customerStatusFilter) {
+            return prev.filter((c) => c.id !== updatedConv.id);
+          }
+          const exists = prev.some((c) => c.id === updatedConv.id);
+          if (exists) {
+            const others = prev.filter((c) => c.id !== updatedConv.id);
+            return [updatedConv, ...others];
+          }
+          return [updatedConv, ...prev];
+        });
+        setActiveCustomerConv((prev) =>
+          prev && prev.id === updatedConv.id ? updatedConv : prev
+        );
+      }
+    );
+    return unsubscribe;
+  }, [currentCompany?.id, customerStatusFilter]);
+
+  // WebSocket Realtime: Lắng nghe tin nhắn mới trong cuộc hội thoại khách hàng đang mở (Customer <-> Staff)
+  useEffect(() => {
+    if (!activeCustomerConv?.id) return;
+    const unsubscribe = stompWsClient.subscribe<ConversationMessage>(
+      `/topic/conversations/${activeCustomerConv.id}`,
+      (incomingMsg) => {
+        if (!incomingMsg || !incomingMsg.id) return;
+        setCustomerMessages((prev) => {
+          if (prev.some((m) => m.id === incomingMsg.id)) {
+            return prev;
+          }
+          return [...prev, incomingMsg];
+        });
+        setTimeout(scrollToBottom, 60);
+      }
+    );
+    return unsubscribe;
+  }, [activeCustomerConv?.id]);
+
+  // WebSocket Realtime: Lắng nghe tin nhắn mới trong phòng chat nội bộ đang mở
+  useEffect(() => {
+    if (!activeRoom?.id) return;
+    const unsubscribe = stompWsClient.subscribe<InternalMessage>(
+      `/topic/chat-rooms/${activeRoom.id}`,
+      (incomingMsg) => {
+        if (!incomingMsg || !incomingMsg.id) return;
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === incomingMsg.id)) {
+            return prev;
+          }
+          return [...prev, incomingMsg];
+        });
+        setTimeout(scrollToBottom, 60);
+      }
+    );
+    return unsubscribe;
+  }, [activeRoom?.id]);
 
   const handleSelectRoom = (room: ChatRoom) => {
     setActiveRoom(room);
@@ -1187,7 +1353,45 @@ export const ChatWorkspacePage: React.FC = () => {
                         </div>
                       </Space>
 
-                      <Space>
+                      <Space wrap>
+                        <Select
+                          style={{ width: 155 }}
+                          popupMatchSelectWidth={false}
+                          value={activeCustomerConv.status}
+                          loading={updatingCustomerStatus}
+                          onChange={(val) => handleUpdateCustomerStatus(val)}
+                          options={[
+                            { label: '🟢 Đang mở', value: 'OPEN' },
+                            { label: '🟡 Chờ xử lý', value: 'PENDING' },
+                            { label: '🔵 Đã giải quyết', value: 'RESOLVED' },
+                            { label: '⚪ Đã đóng', value: 'CLOSED' },
+                          ]}
+                        />
+                        <Select
+                          placeholder="Gán nhân viên phụ trách..."
+                          style={{ width: 195 }}
+                          popupMatchSelectWidth={false}
+                          value={activeCustomerConv.assigneeId ?? undefined}
+                          loading={assigningCustomerConv}
+                          onChange={(val) => handleAssignCustomerConv(val)}
+                          options={members
+                            .filter((m) => m.status === 'ACTIVE')
+                            .map((m) => ({
+                              label: `${m.fullName} (${m.role})`,
+                              value: m.userId,
+                            }))}
+                        />
+                        {activeCustomerConv.assigneeId !== user?.id && (
+                          <Button
+                            type="primary"
+                            ghost
+                            icon={<UserAddOutlined />}
+                            loading={assigningCustomerConv}
+                            onClick={() => handleAssignCustomerConv(user?.id)}
+                          >
+                            Nhận xử lý
+                          </Button>
+                        )}
                         <Button
                           icon={<ReloadOutlined />}
                           onClick={() => fetchCustomerMessages(activeCustomerConv.id)}
@@ -1195,14 +1399,16 @@ export const ChatWorkspacePage: React.FC = () => {
                         >
                           Làm mới
                         </Button>
-                        <Button
-                          type={activeCustomerConv.status !== 'OPEN' ? 'primary' : 'default'}
-                          icon={<HistoryOutlined />}
-                          loading={restoringCustomerConv}
-                          onClick={handleRestoreCustomerConv}
-                        >
-                          Khôi phục (Restore)
-                        </Button>
+                        {activeCustomerConv.status !== 'OPEN' && (
+                          <Button
+                            type="primary"
+                            icon={<HistoryOutlined />}
+                            loading={restoringCustomerConv}
+                            onClick={handleRestoreCustomerConv}
+                          >
+                            Khôi phục (Restore)
+                          </Button>
+                        )}
                       </Space>
                     </div>
 
@@ -1271,7 +1477,8 @@ export const ChatWorkspacePage: React.FC = () => {
                                       `Khách hàng #${msg.senderId || ''}`
                                     : msg.senderType === 'AI'
                                     ? 'AI Bot Tự Động'
-                                    : `Nhân viên #${msg.senderId || ''}`}
+                                    : members.find((m) => m.userId === msg.senderId)?.fullName ||
+                                      `Nhân viên #${msg.senderId || ''}`}
                                 </div>
                                 <div style={{ fontSize: 14, lineHeight: 1.4 }}>{msg.content}</div>
                                 <div
@@ -1295,6 +1502,40 @@ export const ChatWorkspacePage: React.FC = () => {
                         })
                       )}
                       <div ref={messagesEndRef} />
+                    </div>
+
+                    {/* Thanh nhập tin nhắn trả lời của Staff */}
+                    <div
+                      style={{
+                        padding: '12px 16px',
+                        borderTop: '1px solid #f0f0f0',
+                        background: '#fff',
+                      }}
+                    >
+                      <Space.Compact style={{ width: '100%' }}>
+                        <Input.TextArea
+                          value={customerInputContent}
+                          onChange={(e) => setCustomerInputContent(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSendCustomerReply();
+                            }
+                          }}
+                          placeholder={`Nhập tin nhắn phản hồi cho ${activeCustomerConv.visitorName || 'khách hàng'}... (Nhấn Enter để gửi)`}
+                          autoSize={{ minRows: 1, maxRows: 3 }}
+                          style={{ borderRadius: '8px 0 0 8px' }}
+                        />
+                        <Button
+                          type="primary"
+                          icon={<SendOutlined />}
+                          onClick={handleSendCustomerReply}
+                          loading={sendingCustomerMsg}
+                          style={{ height: 'auto', borderRadius: '0 8px 8px 0', padding: '0 20px' }}
+                        >
+                          Gửi trả lời
+                        </Button>
+                      </Space.Compact>
                     </div>
                   </>
                 ) : (

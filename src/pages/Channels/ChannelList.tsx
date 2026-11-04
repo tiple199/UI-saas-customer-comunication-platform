@@ -41,6 +41,7 @@ import {
 } from '@ant-design/icons';
 import { channelApi } from '../../api/channel';
 import { widgetApi } from '../../api/widget';
+import { stompWsClient } from '../../api/wsClient';
 import { isSuccess } from '../../types/api';
 import type {
   Channel,
@@ -132,6 +133,25 @@ export const ChannelList: React.FC = () => {
       setTotalElements(0);
     }
   }, [currentCompany?.id]);
+
+  // WebSocket Realtime trên Widget Simulator: Nhận ngay tin nhắn từ Staff (hoặc Customer) theo thời gian thực
+  const activeSimConvId = restoredConv?.id || handshakeResult?.conversationId;
+  useEffect(() => {
+    if (!embedChannel || !activeSimConvId) return;
+    const unsubscribe = stompWsClient.subscribe<ConversationMessage>(
+      `/topic/conversations/${activeSimConvId}`,
+      (incomingMsg) => {
+        if (!incomingMsg || !incomingMsg.id) return;
+        setWidgetMessages((prev) => {
+          if (prev.some((m) => m.id === incomingMsg.id)) {
+            return prev;
+          }
+          return [...prev, incomingMsg];
+        });
+      }
+    );
+    return unsubscribe;
+  }, [embedChannel?.id, activeSimConvId]);
 
   // Xem chi tiết kênh qua GET /api/v1/channels/{id}
   const handleViewChannelById = async (channelId: number) => {
@@ -245,7 +265,9 @@ export const ChannelList: React.FC = () => {
       });
       if (isSuccess(res) && res.data) {
         setWidgetInputText('');
-        setWidgetMessages((prev) => [...prev, res.data]);
+        setWidgetMessages((prev) =>
+          prev.some((m) => m.id === res.data.id) ? prev : [...prev, res.data]
+        );
         message.success('Khách hàng đã gửi tin nhắn thành công!');
       } else {
         message.error(res.message || 'Gửi tin nhắn thất bại');
