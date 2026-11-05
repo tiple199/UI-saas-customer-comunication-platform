@@ -241,3 +241,42 @@ export interface WidgetSendMessageRequest {
   content: string;
   messageType?: string;
 }
+
+// ========== KNOWLEDGE BASE / RAG ==========
+
+export interface KnowledgeBase {
+  id: number;
+  name: string;
+  description?: string | null;
+  companyId: number;
+  companyName?: string | null;
+  documentCount: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateKnowledgeBaseRequest {
+  name: string;
+  description?: string;
+}
+
+export interface UpdateKnowledgeBaseRequest {
+  name: string;
+  description?: string;
+}
+
+export interface DocumentItem {
+  id: number;
+  fileName: string;
+  fileUrl: string;
+  fileType: string;
+  fileSize: number;
+  status: string;
+  chunkCount: number;
+  knowledgeBaseId: number;
+  knowledgeBaseName?: string | null;
+  companyId: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+

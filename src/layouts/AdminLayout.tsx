@@ -25,6 +25,7 @@ import {
   WechatOutlined,
   SettingOutlined,
   CustomerServiceOutlined,
+  ReadOutlined,
   DownOutlined,
   CheckOutlined,
 } from '@ant-design/icons';
@@ -85,6 +86,8 @@ export const AdminLayout: React.FC = () => {
     ? 'members'
     : location.pathname.includes('/admin/conversations')
     ? 'conversations'
+    : location.pathname.includes('/admin/knowledge-bases')
+    ? 'knowledge-bases'
     : location.pathname.includes('/admin/chat-rooms')
     ? 'chat-rooms'
     : location.pathname.includes('/admin/settings')
@@ -314,6 +317,12 @@ export const AdminLayout: React.FC = () => {
                 icon: <CustomerServiceOutlined />,
                 label: 'Hội Thoại Khách Hàng',
                 onClick: () => navigate('/admin/conversations'),
+              },
+              {
+                key: 'knowledge-bases',
+                icon: <ReadOutlined />,
+                label: 'Cơ Sở Tri Thức (RAG)',
+                onClick: () => navigate('/admin/knowledge-bases'),
               },
               {
                 key: 'members',
