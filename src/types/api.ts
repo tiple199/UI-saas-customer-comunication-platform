@@ -280,3 +280,21 @@ export interface DocumentItem {
   updatedAt?: string;
 }
 
+export interface DocumentPreview {
+  id: number;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  status: string;
+  chunkCount: number;
+  knowledgeBaseId: number;
+  knowledgeBaseName?: string | null;
+  companyId: number;
+  createdAt?: string;
+  textContent?: string | null;
+  isText: boolean;
+  isPdf: boolean;
+  isOffice: boolean;
+  truncated: boolean;
+}
+
