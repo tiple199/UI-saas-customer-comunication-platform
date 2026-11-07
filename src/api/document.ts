@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { ApiResponse, DocumentItem, DocumentPreview, PageResponse } from '../types/api';
+import type { ApiResponse, DocumentChunkSearchResult, DocumentItem, DocumentPreview, PageResponse, RagAskRequest, RagAskResponse, RagContextResponse } from '../types/api';
 
 export const documentApi = {
   uploadDocument: async (
@@ -127,6 +127,61 @@ export const documentApi = {
     const response = await apiClient.post<ApiResponse<DocumentItem>>(
       `/api/v1/documents/${id}/process`,
       null,
+      { params }
+    );
+    return response.data;
+  },
+
+  searchSimilarChunks: async (
+    knowledgeBaseId: number,
+    query: string,
+    topK = 5,
+    minScore = 0.3,
+    companyId?: number
+  ): Promise<ApiResponse<DocumentChunkSearchResult[]>> => {
+    const params: Record<string, any> = { knowledgeBaseId, query, topK, minScore };
+    if (companyId) params.companyId = companyId;
+    const response = await apiClient.get<ApiResponse<DocumentChunkSearchResult[]>>(
+      '/api/v1/documents/search',
+      { params }
+    );
+    return response.data;
+  },
+
+  buildRagContext: async (
+    query: string,
+    options?: {
+      knowledgeBaseId?: number;
+      conversationId?: number;
+      topK?: number;
+      minScore?: number;
+      companyId?: number;
+    }
+  ): Promise<ApiResponse<RagContextResponse>> => {
+    const params: Record<string, any> = {
+      query,
+      topK: options?.topK ?? 5,
+      minScore: options?.minScore ?? 0.35,
+    };
+    if (options?.knowledgeBaseId) params.knowledgeBaseId = options.knowledgeBaseId;
+    if (options?.conversationId) params.conversationId = options.conversationId;
+    if (options?.companyId) params.companyId = options.companyId;
+
+    const response = await apiClient.get<ApiResponse<RagContextResponse>>(
+      '/api/v1/documents/rag-context',
+      { params }
+    );
+    return response.data;
+  },
+
+  askRag: async (
+    request: RagAskRequest,
+    companyId?: number
+  ): Promise<ApiResponse<RagAskResponse>> => {
+    const params = companyId ? { companyId } : {};
+    const response = await apiClient.post<ApiResponse<RagAskResponse>>(
+      '/api/v1/documents/ask',
+      request,
       { params }
     );
     return response.data;

@@ -298,3 +298,45 @@ export interface DocumentPreview {
   truncated: boolean;
 }
 
+export interface DocumentChunkSearchResult {
+  chunkId: number;
+  documentId: number;
+  documentName: string;
+  chunkIndex: number;
+  content: string;
+  similarityScore: number;
+}
+
+export interface RagContextResponse {
+  companyId: number;
+  knowledgeBaseId?: number | null;
+  conversationId?: number | null;
+  query: string;
+  hasRelevantKnowledge: boolean;
+  matchedChunks: DocumentChunkSearchResult[];
+  knowledgeContext: string;
+  conversationHistoryContext: string;
+  systemInstruction: string;
+  fullPrompt: string;
+}
+
+export interface RagAskRequest {
+  query: string;
+  knowledgeBaseId?: number | null;
+  conversationId?: number | null;
+  topK?: number;
+  minScore?: number;
+}
+
+export interface RagAskResponse {
+  query: string;
+  answer: string;
+  hasRelevantKnowledge: boolean;
+  companyId: number;
+  knowledgeBaseId?: number | null;
+  conversationId?: number | null;
+  matchedChunks: DocumentChunkSearchResult[];
+}
+
+
+
