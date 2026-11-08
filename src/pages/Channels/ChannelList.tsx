@@ -268,6 +268,16 @@ export const ChannelList: React.FC = () => {
         setWidgetMessages((prev) =>
           prev.some((m) => m.id === res.data.id) ? prev : [...prev, res.data]
         );
+        // Đồng bộ lại danh sách tin nhắn hội thoại để nhận ngay phản hồi tự động từ AI (nếu kênh bật AI)
+        try {
+          const restoreRes = await widgetApi.restoreConversation(embedChannel.channelKey, token);
+          if (isSuccess(restoreRes) && restoreRes.data) {
+            setRestoredConv(restoreRes.data.conversation);
+            setWidgetMessages(restoreRes.data.messages || []);
+          }
+        } catch {
+          // Bỏ qua nếu lỗi mạng phụ, tin nhắn gốc đã cập nhật
+        }
         message.success('Khách hàng đã gửi tin nhắn thành công!');
       } else {
         message.error(res.message || 'Gửi tin nhắn thất bại');
@@ -1015,6 +1025,7 @@ export const ChannelList: React.FC = () => {
                         ) : (
                           widgetMessages.map((m) => {
                             const isVisitor = m.senderType === 'VISITOR';
+                            const isAi = m.senderType === 'AI';
                             return (
                               <div
                                 key={m.id}
@@ -1029,23 +1040,32 @@ export const ChannelList: React.FC = () => {
                                     maxWidth: '75%',
                                     padding: '8px 12px',
                                     borderRadius: 10,
-                                    background: isVisitor ? '#1677ff' : '#fff',
+                                    background: isVisitor ? '#1677ff' : isAi ? '#f9f0ff' : '#fff',
                                     color: isVisitor ? '#fff' : '#1e293b',
-                                    border: isVisitor ? 'none' : '1px solid #e2e8f0',
+                                    border: isVisitor
+                                      ? 'none'
+                                      : isAi
+                                      ? '1px solid #d3adf7'
+                                      : '1px solid #e2e8f0',
                                     fontSize: 13,
                                   }}
                                 >
                                   <div
                                     style={{
                                       fontSize: 10,
-                                      opacity: 0.8,
+                                      opacity: 0.85,
                                       marginBottom: 2,
                                       fontWeight: 600,
+                                      color: isVisitor ? '#e6f4ff' : isAi ? '#722ed1' : '#475569',
                                     }}
                                   >
-                                    {m.senderType} #{m.senderId || ''}
+                                    {isVisitor
+                                      ? `Khách hàng #${m.senderId || ''}`
+                                      : isAi
+                                      ? '🤖 Trợ lý AI'
+                                      : `Nhân viên #${m.senderId || ''}`}
                                   </div>
-                                  <div>{m.content}</div>
+                                  <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>
                                   <div
                                     style={{
                                       fontSize: 10,

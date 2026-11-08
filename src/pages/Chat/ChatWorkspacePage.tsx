@@ -13,6 +13,7 @@ import {
   List,
   Typography,
   message,
+  notification,
   Empty,
   Spin,
   Alert,
@@ -56,7 +57,9 @@ import type {
   Conversation,
   ConversationMessage,
   ConversationStatus,
+  HandlingMode,
   InternalMessage,
+  StaffHandoffNotification,
 } from '../../types/api';
 import { useAuth } from '../../context/AuthContext';
 
@@ -114,6 +117,7 @@ export const ChatWorkspacePage: React.FC = () => {
   const [restoringCustomerConv, setRestoringCustomerConv] = useState(false);
   const [assigningCustomerConv, setAssigningCustomerConv] = useState(false);
   const [updatingCustomerStatus, setUpdatingCustomerStatus] = useState(false);
+  const [updatingHandlingMode, setUpdatingHandlingMode] = useState(false);
   const [customerInputContent, setCustomerInputContent] = useState('');
   const [sendingCustomerMsg, setSendingCustomerMsg] = useState(false);
 
@@ -280,6 +284,37 @@ export const ChatWorkspacePage: React.FC = () => {
     }
   };
 
+  const handleClaimAndOpenCustomerConv = async (conversationId: number) => {
+    if (!currentCompany) return;
+    try {
+      setSidebarTab('customers');
+      setCustomerStatusFilter(undefined);
+      setAssigningCustomerConv(true);
+      const assignRes = await conversationApi.assignStaff(
+        conversationId,
+        user?.id,
+        currentCompany.id
+      );
+      if (isSuccess(assignRes) && assignRes.data) {
+        message.success(`Bạn đã tiếp nhận xử lý hội thoại #${conversationId}!`);
+        setActiveCustomerConv(assignRes.data);
+        setCustomerConvs((prev) => {
+          const exists = prev.some((c) => c.id === assignRes.data.id);
+          if (exists) {
+            return prev.map((c) => (c.id === assignRes.data.id ? assignRes.data : c));
+          }
+          return [assignRes.data, ...prev];
+        });
+      }
+      await fetchCustomerMessages(conversationId);
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi tiếp nhận cuộc hội thoại');
+      fetchCustomerMessages(conversationId);
+    } finally {
+      setAssigningCustomerConv(false);
+    }
+  };
+
   const handleUpdateCustomerStatus = async (newStatus: ConversationStatus) => {
     if (!activeCustomerConv || !currentCompany) return;
     try {
@@ -305,6 +340,35 @@ export const ChatWorkspacePage: React.FC = () => {
       message.error(err.response?.data?.message || 'Lỗi khi cập nhật trạng thái hội thoại');
     } finally {
       setUpdatingCustomerStatus(false);
+    }
+  };
+
+  const handleToggleHandlingMode = async (newMode: HandlingMode) => {
+    if (!activeCustomerConv || !currentCompany) return;
+    try {
+      setUpdatingHandlingMode(true);
+      const res = await conversationApi.updateHandlingMode(
+        activeCustomerConv.id,
+        newMode,
+        currentCompany.id
+      );
+      if (isSuccess(res) && res.data) {
+        message.success(
+          newMode === 'AI'
+            ? 'Đã bật lại chế độ AI tự động trả lời cho hội thoại này!'
+            : 'Đã chuyển hội thoại sang chế độ Nhân viên hỗ trợ (HUMAN)!'
+        );
+        setActiveCustomerConv(res.data);
+        setCustomerConvs((prev) =>
+          prev.map((c) => (c.id === res.data.id ? res.data : c))
+        );
+      } else {
+        message.error(res.message || 'Cập nhật chế độ xử lý thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi chuyển đổi chế độ AI / HUMAN');
+    } finally {
+      setUpdatingHandlingMode(false);
     }
   };
 
@@ -487,6 +551,71 @@ export const ChatWorkspacePage: React.FC = () => {
     );
     return unsubscribe;
   }, [currentCompany?.id, customerStatusFilter]);
+
+  // WebSocket Realtime: Lắng nghe thông báo Human Handoff khi AI không đủ context và chuyển sang Staff
+  useEffect(() => {
+    if (!currentCompany) return;
+    const unsubscribe = stompWsClient.subscribe<StaffHandoffNotification>(
+      `/topic/companies/${currentCompany.id}/notifications`,
+      (notif) => {
+        if (!notif || !notif.conversationId) return;
+        const notifKey = `handoff_${notif.conversationId}_${Date.now()}`;
+        notification.warning({
+          key: notifKey,
+          message: '🔔 Yêu cầu Nhân viên hỗ trợ (Human Handoff)',
+          description: (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ fontSize: 13, color: '#334155', marginBottom: 6 }}>
+                {notif.message}
+              </div>
+              {notif.lastCustomerMessage && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    background: '#f8fafc',
+                    borderLeft: '3px solid #f59e0b',
+                    padding: '6px 10px',
+                    borderRadius: 4,
+                    color: '#475569',
+                    marginBottom: 10,
+                  }}
+                >
+                  <strong>Câu hỏi khách hàng:</strong> &ldquo;{notif.lastCustomerMessage}&rdquo;
+                </div>
+              )}
+              <Space size={8}>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<UserAddOutlined />}
+                  onClick={() => {
+                    notification.destroy(notifKey);
+                    handleClaimAndOpenCustomerConv(notif.conversationId);
+                  }}
+                >
+                  Nhận xử lý & Mở ngay
+                </Button>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    notification.destroy(notifKey);
+                    setSidebarTab('customers');
+                    setCustomerStatusFilter(undefined);
+                    fetchCustomerMessages(notif.conversationId);
+                  }}
+                >
+                  Xem hội thoại #{notif.conversationId}
+                </Button>
+              </Space>
+            </div>
+          ),
+          placement: 'topRight',
+          duration: 12,
+        });
+      }
+    );
+    return unsubscribe;
+  }, [currentCompany?.id]);
 
   // WebSocket Realtime: Lắng nghe tin nhắn mới trong cuộc hội thoại khách hàng đang mở (Customer <-> Staff)
   useEffect(() => {
@@ -1392,6 +1521,25 @@ export const ChatWorkspacePage: React.FC = () => {
                             Nhận xử lý
                           </Button>
                         )}
+                        <Button
+                          icon={
+                            activeCustomerConv.handlingMode === 'AI' ? (
+                              <UserOutlined />
+                            ) : (
+                              <RobotOutlined />
+                            )
+                          }
+                          loading={updatingHandlingMode}
+                          onClick={() =>
+                            handleToggleHandlingMode(
+                              activeCustomerConv.handlingMode === 'AI' ? 'HUMAN' : 'AI'
+                            )
+                          }
+                        >
+                          {activeCustomerConv.handlingMode === 'AI'
+                            ? 'Chuyển sang Nhân viên'
+                            : 'Bật lại AI'}
+                        </Button>
                         <Button
                           icon={<ReloadOutlined />}
                           onClick={() => fetchCustomerMessages(activeCustomerConv.id)}

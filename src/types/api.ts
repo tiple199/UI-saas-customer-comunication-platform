@@ -313,6 +313,10 @@ export interface RagContextResponse {
   conversationId?: number | null;
   query: string;
   hasRelevantKnowledge: boolean;
+  maxSimilarityScore: number;
+  insufficientContext: boolean;
+  humanHandoffRequested: boolean;
+  insufficientReason?: string | null;
   matchedChunks: DocumentChunkSearchResult[];
   knowledgeContext: string;
   conversationHistoryContext: string;
@@ -332,11 +336,29 @@ export interface RagAskResponse {
   query: string;
   answer: string;
   hasRelevantKnowledge: boolean;
+  insufficientContext: boolean;
+  maxSimilarityScore: number;
+  insufficientReason?: string | null;
   companyId: number;
   knowledgeBaseId?: number | null;
   conversationId?: number | null;
   matchedChunks: DocumentChunkSearchResult[];
 }
+
+export interface StaffHandoffNotification {
+  type: string;
+  companyId: number;
+  conversationId: number;
+  channelId: number;
+  channelName?: string | null;
+  visitorId: number;
+  visitorName?: string | null;
+  lastCustomerMessage?: string | null;
+  reason?: string | null;
+  message: string;
+  createdAt?: string;
+}
+
 
 
 

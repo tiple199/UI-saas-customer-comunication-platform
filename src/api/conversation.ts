@@ -5,6 +5,7 @@ import type {
   ConversationMessage,
   ConversationStatus,
   CreateConversationRequest,
+  HandlingMode,
   PageResponse,
   RestoreConversationResponse,
   SendMessageRequest,
@@ -123,6 +124,20 @@ export const conversationApi = {
     const response = await apiClient.patch<ApiResponse<Conversation>>(
       `/api/v1/conversations/${id}/status`,
       { status },
+      { params }
+    );
+    return response.data;
+  },
+
+  updateHandlingMode: async (
+    id: number,
+    handlingMode: HandlingMode,
+    companyId?: number
+  ): Promise<ApiResponse<Conversation>> => {
+    const params = companyId ? { companyId } : {};
+    const response = await apiClient.patch<ApiResponse<Conversation>>(
+      `/api/v1/conversations/${id}/handling-mode`,
+      { handlingMode },
       { params }
     );
     return response.data;
