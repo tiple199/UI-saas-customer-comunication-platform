@@ -359,6 +359,108 @@ export interface StaffHandoffNotification {
   createdAt?: string;
 }
 
+export type PlanStatus = 'ACTIVE' | 'INACTIVE';
+
+export interface Plan {
+  id: number;
+  name: string;
+  price: number;
+  maxUser: number;
+  maxChannel: number;
+  aiEnabled: boolean;
+  aiQuota: number;
+  storageLimit: number;
+  status: PlanStatus;
+}
+
+export interface CreatePlanRequest {
+  name: string;
+  price: number;
+  maxUser: number;
+  maxChannel: number;
+  aiEnabled: boolean;
+  aiQuota?: number;
+  storageLimit: number;
+  status?: PlanStatus;
+}
+
+export interface UpdatePlanRequest {
+  name?: string;
+  price?: number;
+  maxUser?: number;
+  maxChannel?: number;
+  aiEnabled?: boolean;
+  aiQuota?: number;
+  storageLimit?: number;
+  status?: PlanStatus;
+}
+
+export interface CompanySubscription {
+  id?: number;
+  companyId: number;
+  plan?: Plan | null;
+  status: string;
+  startAt?: string | null;
+  endAt?: string | null;
+  pendingPlanId?: number | null;
+  pendingPlan?: Plan | null;
+}
+
+export interface UpgradeSubscriptionRequest {
+  targetPlanId: number;
+  durationMonths?: number;
+  paymentProvider?: string;
+}
+
+export interface UpgradeSubscriptionResponse {
+  subscriptionId: number;
+  companyId: number;
+  previousPlan?: Plan | null;
+  upgradedPlan: Plan;
+  status: string;
+  startAt: string;
+  endAt: string;
+  amountPaid: number;
+  fullPrice?: number;
+  unusedCreditAmount?: number;
+  remainingDaysCredited?: number;
+  paymentProvider: string;
+  transactionRef: string;
+  message: string;
+}
+
+export interface UpgradeCalculationResponse {
+  targetPlanId: number;
+  targetPlanName: string;
+  targetPlanPrice: number;
+  durationMonths: number;
+  fullNewPlanAmount: number;
+  unusedCreditAmount: number;
+  remainingDays: number;
+  finalAmountToPay: number;
+  annualOnly?: boolean;
+  annualOnlyReason?: string;
+}
+
+
+export interface DowngradeSubscriptionRequest {
+  targetPlanId: number;
+  reason?: string;
+}
+
+export interface DowngradeSubscriptionResponse {
+  subscriptionId: number;
+  companyId: number;
+  currentPlan?: Plan | null;
+  pendingPlan: Plan;
+  effectiveDate: string;
+  message: string;
+}
+
+
+
+
+
 
 
 

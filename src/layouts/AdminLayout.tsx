@@ -28,6 +28,7 @@ import {
   ReadOutlined,
   DownOutlined,
   CheckOutlined,
+  CrownOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -90,6 +91,8 @@ export const AdminLayout: React.FC = () => {
     ? 'knowledge-bases'
     : location.pathname.includes('/admin/chat-rooms')
     ? 'chat-rooms'
+    : location.pathname.includes('/admin/plans')
+    ? 'plans'
     : location.pathname.includes('/admin/settings')
     ? 'settings'
     : 'channels';
@@ -335,6 +338,12 @@ export const AdminLayout: React.FC = () => {
                 icon: <CommentOutlined />,
                 label: 'Quản Lý Phòng Chat',
                 onClick: () => navigate('/admin/chat-rooms'),
+              },
+              {
+                key: 'plans',
+                icon: <CrownOutlined />,
+                label: 'Gói Dịch Vụ (Plan)',
+                onClick: () => navigate('/admin/plans'),
               },
               {
                 key: 'settings',
