@@ -395,6 +395,18 @@ export interface UpdatePlanRequest {
   status?: PlanStatus;
 }
 
+export interface UsageStats {
+  maxUsers?: number;
+  activeUsers: number;
+  maxChannels?: number;
+  activeChannels: number;
+  storageLimitMb?: number;
+  usedStorageBytes: number;
+  aiEnabled: boolean;
+  aiQuota?: number;
+  usedAiQuotaThisMonth: number;
+}
+
 export interface CompanySubscription {
   id?: number;
   companyId: number;
@@ -404,6 +416,7 @@ export interface CompanySubscription {
   endAt?: string | null;
   pendingPlanId?: number | null;
   pendingPlan?: Plan | null;
+  usage?: UsageStats | null;
 }
 
 export interface UpgradeSubscriptionRequest {
@@ -454,6 +467,25 @@ export interface DowngradeSubscriptionResponse {
   currentPlan?: Plan | null;
   pendingPlan: Plan;
   effectiveDate: string;
+  message: string;
+}
+
+export interface RenewSubscriptionRequest {
+  durationMonths: number;
+  paymentProvider?: string;
+}
+
+export interface RenewSubscriptionResponse {
+  subscriptionId: number;
+  companyId: number;
+  plan: Plan;
+  status: string;
+  previousEndAt?: string | null;
+  newEndAt: string;
+  durationMonths: number;
+  amountPaid: number;
+  paymentProvider: string;
+  transactionRef: string;
   message: string;
 }
 

@@ -128,5 +128,17 @@ export const planApi = {
     });
     return response.data;
   },
+
+  renewSubscription: async (
+    payload: import('../types/api').RenewSubscriptionRequest,
+    companyId?: number
+  ): Promise<ApiResponse<import('../types/api').RenewSubscriptionResponse>> => {
+    const response = await apiClient.post<
+      ApiResponse<import('../types/api').RenewSubscriptionResponse>
+    >('/api/v1/plans/renew', payload, {
+      params: companyId ? { companyId } : {},
+    });
+    return response.data;
+  },
 };
 
