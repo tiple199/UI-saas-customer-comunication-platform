@@ -14,6 +14,8 @@ import {
   Modal,
   Radio,
   message,
+  Table,
+  Tooltip,
 } from 'antd';
 import {
   CrownOutlined,
@@ -29,16 +31,29 @@ import {
   CalendarOutlined,
   ReloadOutlined,
   SyncOutlined,
+  QrcodeOutlined,
+  CopyOutlined,
+  HistoryOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import { planApi } from '../../../api/plan';
+import { paymentApi } from '../../../api/payment';
 import { isSuccess } from '../../../types/api';
-import type { Plan, CompanySubscription, UpgradeCalculationResponse } from '../../../types/api';
+import type {
+  Plan,
+  CompanySubscription,
+  UpgradeCalculationResponse,
+  PaymentOrderResponse,
+  PaymentResponse,
+} from '../../../types/api';
 import { useAuth } from '../../../context/AuthContext';
+import { useSearchParams } from 'react-router-dom';
 
 const { Title, Text, Paragraph } = Typography;
 
 export const CompanyPlanCatalogPage: React.FC = () => {
   const { currentCompany } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subscription, setSubscription] = useState<CompanySubscription | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -63,6 +78,17 @@ export const CompanyPlanCatalogPage: React.FC = () => {
   const [renewDurationMonths, setRenewDurationMonths] = useState<number>(1);
   const [renewPaymentProvider, setRenewPaymentProvider] = useState<string>('SIMULATED');
   const [renewing, setRenewing] = useState<boolean>(false);
+
+  // Payment Order State (Hướng 1)
+  const [activePaymentOrder, setActivePaymentOrder] = useState<PaymentOrderResponse | null>(null);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState<boolean>(false);
+  const [confirmingPayment, setConfirmingPayment] = useState<boolean>(false);
+  const [cancelingPayment, setCancelingPayment] = useState<boolean>(false);
+
+  // Payment History State
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
+  const [paymentHistory, setPaymentHistory] = useState<PaymentResponse[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
   const fetchPlansAndSubscription = async () => {
     if (!currentCompany) return;
@@ -89,6 +115,81 @@ export const CompanyPlanCatalogPage: React.FC = () => {
   useEffect(() => {
     fetchPlansAndSubscription();
   }, [currentCompany?.id]);
+
+  // Xử lý Return URL Redirect từ Cổng thanh toán (PayOS, VNPay, Mock Sandbox)
+  useEffect(() => {
+    const statusParam = searchParams.get('status');
+    const orderCodeParam =
+      searchParams.get('orderCode') ||
+      searchParams.get('vnp_TxnRef') ||
+      searchParams.get('mock_paid');
+    const cancelParam = searchParams.get('cancel');
+    const codeParam = searchParams.get('code');
+    const vnpResponseCode = searchParams.get('vnp_ResponseCode');
+
+    if (!orderCodeParam) return;
+
+    const isSuccessRedirect =
+      statusParam === 'PAID' ||
+      (codeParam === '00' && cancelParam !== 'true') ||
+      vnpResponseCode === '00' ||
+      searchParams.has('mock_paid');
+
+    const isCancelRedirect = cancelParam === 'true' || statusParam === 'CANCELLED';
+
+    const clearUrlParams = () => {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('status');
+      nextParams.delete('orderCode');
+      nextParams.delete('cancel');
+      nextParams.delete('code');
+      nextParams.delete('id');
+      nextParams.delete('vnp_ResponseCode');
+      nextParams.delete('vnp_TxnRef');
+      nextParams.delete('mock_paid');
+      setSearchParams(nextParams, { replace: true });
+    };
+
+    if (isSuccessRedirect) {
+      const finalizePayment = async () => {
+        try {
+          const confirmRes = await paymentApi.confirmPayment({
+            transactionRef: orderCodeParam,
+            note: 'Xác nhận tự động qua Return URL redirect từ cổng thanh toán',
+          });
+
+          if (isSuccess(confirmRes) && confirmRes.data) {
+            Modal.success({
+              title: 'Thanh Toán Thành Công!',
+              content: (
+                <div>
+                  <p>
+                    Giao dịch <strong>#{orderCodeParam}</strong> đã được cổng thanh toán xác nhận thành công.
+                  </p>
+                  <p>Hệ thống đã tự động kích hoạt / gia hạn quyền lợi gói cước cho công ty của bạn!</p>
+                </div>
+              ),
+              okText: 'Tuyệt vời',
+              onOk: () => {
+                fetchPlansAndSubscription();
+              },
+            });
+            fetchPlansAndSubscription();
+          }
+        } catch {
+          // Trường hợp webhook đã kích hoạt trước đó, refresh lại dữ liệu
+          fetchPlansAndSubscription();
+        } finally {
+          clearUrlParams();
+        }
+      };
+
+      finalizePayment();
+    } else if (isCancelRedirect) {
+      message.warning(`Giao dịch thanh toán #${orderCodeParam} đã được hủy bỏ.`);
+      clearUrlParams();
+    }
+  }, [searchParams]);
 
   // Tự động tính toán số tiền nâng cấp & khấu trừ Proration khi mở modal hoặc thay đổi gói/chu kỳ
   useEffect(() => {
@@ -163,38 +264,59 @@ export const CompanyPlanCatalogPage: React.FC = () => {
     setIsUpgradeModalOpen(true);
   };
 
+  // Polling trạng thái đơn hàng thanh toán
+  useEffect(() => {
+    if (!isPaymentModalOpen || !activePaymentOrder || activePaymentOrder.status !== 'PENDING') {
+      return;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await paymentApi.getPaymentStatus(activePaymentOrder.transactionRef);
+        if (isSuccess(res) && res.data) {
+          if (res.data.status === 'SUCCESS') {
+            setActivePaymentOrder((prev) => (prev ? { ...prev, status: 'SUCCESS' } : null));
+            message.success('Thanh toán thành công! Gói cước đã được kích hoạt.');
+            fetchPlansAndSubscription();
+          } else if (res.data.status === 'FAILED' || res.data.status === 'CANCELLED') {
+            setActivePaymentOrder((prev) => (prev ? { ...prev, status: res.data.status } : null));
+          }
+        }
+      } catch {
+        // ignore polling error
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isPaymentModalOpen, activePaymentOrder?.transactionRef, activePaymentOrder?.status]);
+
   const handleConfirmUpgrade = async () => {
     if (!selectedPlan || !currentCompany) return;
     setUpgrading(true);
     try {
-      const res = await planApi.upgradeSubscription(
+      const res = await paymentApi.createPaymentOrder(
         {
+          orderType: 'UPGRADE',
           targetPlanId: selectedPlan.id,
           durationMonths,
-          paymentProvider,
+          paymentProvider: paymentProvider,
         },
         currentCompany.id
       );
 
       if (isSuccess(res) && res.data) {
-        const upgradeData = res.data;
-        if (upgradeData.unusedCreditAmount && upgradeData.unusedCreditAmount > 0) {
-          message.success(
-            `Nâng cấp thành công sang gói ${selectedPlan.name}! Đã khấu trừ ${new Intl.NumberFormat('vi-VN', {
-              style: 'currency',
-              currency: 'VND',
-            }).format(upgradeData.unusedCreditAmount)} từ gói cũ (${upgradeData.remainingDaysCredited} ngày chưa dùng).`
-          );
-        } else {
-          message.success(res.message || `Nâng cấp thành công sang gói ${selectedPlan.name}!`);
-        }
         setIsUpgradeModalOpen(false);
-        fetchPlansAndSubscription();
+        setActivePaymentOrder(res.data);
+        setIsPaymentModalOpen(true);
+        if (res.data.status === 'SUCCESS') {
+          message.success('Nâng cấp gói dịch vụ thành công!');
+          fetchPlansAndSubscription();
+        }
       } else {
-        message.error(res.message || 'Nâng cấp gói dịch vụ thất bại');
+        message.error(res.message || 'Khởi tạo đơn thanh toán nâng cấp thất bại');
       }
     } catch (err: any) {
-      message.error(err.response?.data?.message || 'Lỗi khi nâng cấp gói dịch vụ');
+      message.error(err.response?.data?.message || 'Lỗi khi khởi tạo đơn thanh toán');
     } finally {
       setUpgrading(false);
     }
@@ -258,28 +380,87 @@ export const CompanyPlanCatalogPage: React.FC = () => {
     if (!currentCompany || !currentPlan) return;
     setRenewing(true);
     try {
-      const res = await planApi.renewSubscription(
+      const res = await paymentApi.createPaymentOrder(
         {
+          orderType: 'RENEW',
           durationMonths: renewDurationMonths,
           paymentProvider: renewPaymentProvider,
         },
         currentCompany.id
       );
 
-      if (isSuccess(res)) {
-        message.success(
-          res.message ||
-            `Gia hạn thành công gói ${currentPlan.name}! Hạn mới: ${new Date(res.data.newEndAt).toLocaleDateString('vi-VN')}`
-        );
+      if (isSuccess(res) && res.data) {
         setIsRenewModalOpen(false);
-        fetchPlansAndSubscription();
+        setActivePaymentOrder(res.data);
+        setIsPaymentModalOpen(true);
+        if (res.data.status === 'SUCCESS') {
+          message.success(`Gia hạn thành công gói ${currentPlan.name}!`);
+          fetchPlansAndSubscription();
+        }
       } else {
-        message.error(res.message || 'Gia hạn gói dịch vụ thất bại');
+        message.error(res.message || 'Khởi tạo đơn gia hạn thất bại');
       }
     } catch (err: any) {
-      message.error(err.response?.data?.message || 'Lỗi khi gia hạn gói dịch vụ');
+      message.error(err.response?.data?.message || 'Lỗi khi khởi tạo đơn gia hạn');
     } finally {
       setRenewing(false);
+    }
+  };
+
+  const handleConfirmPaymentManual = async () => {
+    if (!activePaymentOrder) return;
+    setConfirmingPayment(true);
+    try {
+      const res = await paymentApi.confirmPayment({
+        transactionRef: activePaymentOrder.transactionRef,
+        note: 'Xác nhận thanh toán thủ công từ giao diện người dùng',
+      });
+      if (isSuccess(res)) {
+        setActivePaymentOrder((prev) => (prev ? { ...prev, status: 'SUCCESS' } : null));
+        message.success('Xác nhận thanh toán thành công! Gói cước đã được kích hoạt.');
+        fetchPlansAndSubscription();
+      } else {
+        message.error(res.message || 'Xác nhận thanh toán thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi xác nhận thanh toán');
+    } finally {
+      setConfirmingPayment(false);
+    }
+  };
+
+  const handleCancelPaymentOrder = async () => {
+    if (!activePaymentOrder) return;
+    setCancelingPayment(true);
+    try {
+      const res = await paymentApi.cancelPaymentOrder(activePaymentOrder.transactionRef);
+      if (isSuccess(res)) {
+        message.info('Đã hủy đơn giao dịch thanh toán.');
+        setIsPaymentModalOpen(false);
+        setActivePaymentOrder(null);
+      } else {
+        message.error(res.message || 'Hủy đơn giao dịch thất bại');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi hủy đơn giao dịch');
+    } finally {
+      setCancelingPayment(false);
+    }
+  };
+
+  const handleOpenHistory = async () => {
+    if (!currentCompany) return;
+    setIsHistoryModalOpen(true);
+    setLoadingHistory(true);
+    try {
+      const res = await paymentApi.getCompanyPayments(currentCompany.id, 0, 50);
+      if (isSuccess(res) && res.data) {
+        setPaymentHistory(res.data.items || []);
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || 'Lỗi khi tải lịch sử thanh toán');
+    } finally {
+      setLoadingHistory(false);
     }
   };
 
@@ -398,6 +579,20 @@ export const CompanyPlanCatalogPage: React.FC = () => {
                         return null;
                       })()}
                     </Space>
+
+                    <Button
+                      icon={<HistoryOutlined />}
+                      size="small"
+                      onClick={handleOpenHistory}
+                      style={{
+                        borderRadius: 6,
+                        fontWeight: 600,
+                        height: 32,
+                        padding: '0 12px',
+                      }}
+                    >
+                      Lịch sử hóa đơn
+                    </Button>
 
                     <Button
                       type="primary"
@@ -848,20 +1043,28 @@ export const CompanyPlanCatalogPage: React.FC = () => {
                 onChange={(e) => setPaymentProvider(e.target.value)}
                 style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}
               >
-                <Radio value="SIMULATED" style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, width: '100%' }}>
-                  <Space>
-                    <CreditCardOutlined style={{ color: '#10b981', fontSize: 16 }} />
-                    <span style={{ fontWeight: 600 }}>Thanh toán kích hoạt ngay (Môi trường Dev / Sandbox)</span>
+                <Radio value="SIMULATED" style={{ padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 10, width: '100%' }}>
+                  <Space direction="vertical" size={2}>
+                    <Space>
+                      <ThunderboltOutlined style={{ color: '#10b981', fontSize: 16 }} />
+                      <span style={{ fontWeight: 700, fontSize: 14 }}>Thanh toán kích hoạt ngay (Thử nghiệm / Test)</span>
+                      <Tag color="success">Kích hoạt tức thì</Tag>
+                    </Space>
+                    <span style={{ color: '#64748b', fontSize: 12, paddingLeft: 22 }}>
+                      Kích hoạt gói cước ngay lập tức mà không cần chuyển tiền thật. Phục vụ kiểm thử luồng nghiệp vụ.
+                    </span>
                   </Space>
                 </Radio>
-                <Radio value="VNPAY" style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, width: '100%' }}>
-                  <Space>
-                    <span style={{ fontWeight: 600, color: '#005baa' }}>VNPay QR / Thẻ nội địa</span>
-                  </Space>
-                </Radio>
-                <Radio value="MOMO" style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, width: '100%' }}>
-                  <Space>
-                    <span style={{ fontWeight: 600, color: '#a50064' }}>Ví điện tử MoMo</span>
+                <Radio value="PAYOS" style={{ padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 10, width: '100%' }}>
+                  <Space direction="vertical" size={2}>
+                    <Space>
+                      <QrcodeOutlined style={{ color: '#2563eb', fontSize: 16 }} />
+                      <span style={{ fontWeight: 700, fontSize: 14, color: '#1e40af' }}>Cổng thanh toán PayOS (Thanh toán thật)</span>
+                      <Tag color="blue">VietQR 24/7 & Auto Webhook</Tag>
+                    </Space>
+                    <span style={{ color: '#64748b', fontSize: 12, paddingLeft: 22 }}>
+                      Quét mã VietQR động từ app ngân hàng thật. Hệ thống đối soát Webhook và tự động kích hoạt ngay khi nhận tiền.
+                    </span>
                   </Space>
                 </Radio>
               </Radio.Group>
@@ -1121,20 +1324,28 @@ export const CompanyPlanCatalogPage: React.FC = () => {
                 onChange={(e) => setRenewPaymentProvider(e.target.value)}
                 style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}
               >
-                <Radio value="SIMULATED" style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, width: '100%' }}>
-                  <Space>
-                    <CreditCardOutlined style={{ color: '#10b981', fontSize: 16 }} />
-                    <span style={{ fontWeight: 600 }}>Thanh toán kích hoạt ngay (Môi trường Dev / Sandbox)</span>
+                <Radio value="SIMULATED" style={{ padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 10, width: '100%' }}>
+                  <Space direction="vertical" size={2}>
+                    <Space>
+                      <ThunderboltOutlined style={{ color: '#10b981', fontSize: 16 }} />
+                      <span style={{ fontWeight: 700, fontSize: 14 }}>Thanh toán kích hoạt ngay (Thử nghiệm / Test)</span>
+                      <Tag color="success">Kích hoạt tức thì</Tag>
+                    </Space>
+                    <span style={{ color: '#64748b', fontSize: 12, paddingLeft: 22 }}>
+                      Kích hoạt gia hạn gói cước ngay lập tức mà không cần chuyển tiền thật. Phục vụ kiểm thử luồng nghiệp vụ.
+                    </span>
                   </Space>
                 </Radio>
-                <Radio value="VNPAY" style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, width: '100%' }}>
-                  <Space>
-                    <span style={{ fontWeight: 600, color: '#005baa' }}>VNPay QR / Thẻ nội địa</span>
-                  </Space>
-                </Radio>
-                <Radio value="MOMO" style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, width: '100%' }}>
-                  <Space>
-                    <span style={{ fontWeight: 600, color: '#a50064' }}>Ví điện tử MoMo</span>
+                <Radio value="PAYOS" style={{ padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 10, width: '100%' }}>
+                  <Space direction="vertical" size={2}>
+                    <Space>
+                      <QrcodeOutlined style={{ color: '#2563eb', fontSize: 16 }} />
+                      <span style={{ fontWeight: 700, fontSize: 14, color: '#1e40af' }}>Cổng thanh toán PayOS (Thanh toán thật)</span>
+                      <Tag color="blue">VietQR 24/7 & Auto Webhook</Tag>
+                    </Space>
+                    <span style={{ color: '#64748b', fontSize: 12, paddingLeft: 22 }}>
+                      Quét mã VietQR động từ app ngân hàng thật. Hệ thống đối soát Webhook và tự động gia hạn ngay khi nhận tiền.
+                    </span>
                   </Space>
                 </Radio>
               </Radio.Group>
@@ -1206,6 +1417,325 @@ export const CompanyPlanCatalogPage: React.FC = () => {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Modal Cổng Thanh Toán Chuẩn VietQR & Polling (Hướng 1) */}
+      <Modal
+        title={
+          <Space>
+            <QrcodeOutlined style={{ color: '#1677ff', fontSize: 22 }} />
+            <span style={{ fontSize: 18, fontWeight: 700 }}>
+              {activePaymentOrder?.status === 'SUCCESS'
+                ? 'Thanh Toán Thành Công'
+                : 'Thanh Toán Đơn Hàng Dịch Vụ'}
+            </span>
+          </Space>
+        }
+        open={isPaymentModalOpen}
+        onCancel={() => {
+          setIsPaymentModalOpen(false);
+          setActivePaymentOrder(null);
+        }}
+        footer={null}
+        width={720}
+        destroyOnClose
+      >
+        {activePaymentOrder && (
+          <div style={{ marginTop: 12 }}>
+            {activePaymentOrder.status === 'SUCCESS' ? (
+              <div style={{ textAlign: 'center', padding: '30px 16px' }}>
+                <CheckCircleOutlined style={{ fontSize: 64, color: '#16a34a', marginBottom: 16 }} />
+                <Title level={3} style={{ color: '#15803d', marginBottom: 8 }}>
+                  Kích Hoạt Gói Cước Thành Công!
+                </Title>
+                <Paragraph style={{ fontSize: 14, color: '#475569', maxWidth: 480, margin: '0 auto 24px' }}>
+                  Đơn hàng <strong>{activePaymentOrder.transactionRef}</strong> ({activePaymentOrder.orderType === 'UPGRADE' ? 'Nâng cấp' : 'Gia hạn'} gói{' '}
+                  <strong>{activePaymentOrder.targetPlanName}</strong>) đã được hoàn tất và hệ thống đã cập nhật định mức quyền lợi cho công ty.
+                </Paragraph>
+                <Button
+                  type="primary"
+                  size="large"
+                  onClick={() => {
+                    setIsPaymentModalOpen(false);
+                    setActivePaymentOrder(null);
+                    fetchPlansAndSubscription();
+                  }}
+                  style={{ borderRadius: 8, padding: '0 32px', fontWeight: 600 }}
+                >
+                  Hoàn tất & Đóng
+                </Button>
+              </div>
+            ) : (
+              <div>
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16, borderRadius: 8 }}
+                  message={
+                    <span>
+                      Vui lòng mở ứng dụng ngân hàng hoặc ví điện tử bất kỳ quét mã <strong>VietQR</strong> bên dưới để hoàn tất giao dịch tự động.
+                    </span>
+                  }
+                />
+
+                <Row gutter={[24, 24]} align="middle">
+                  {/* Cột Trái: Ảnh QR Code VietQR */}
+                  <Col xs={24} sm={11} style={{ textAlign: 'center' }}>
+                    <div
+                      style={{
+                        padding: 12,
+                        background: '#ffffff',
+                        border: '2px solid #e2e8f0',
+                        borderRadius: 16,
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
+                        display: 'inline-block',
+                      }}
+                    >
+                      {activePaymentOrder.qrCodeUrl ? (
+                        <img
+                          src={activePaymentOrder.qrCodeUrl}
+                          alt="VietQR Code"
+                          style={{ width: '100%', maxWidth: 260, height: 'auto', display: 'block', borderRadius: 8 }}
+                        />
+                      ) : (
+                        <Spin size="large" />
+                      )}
+                    </div>
+                    <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <Spin size="small" />
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Hệ thống tự động kiểm tra giao dịch...
+                      </Text>
+                    </div>
+                  </Col>
+
+                  {/* Cột Phải: Thông tin chuyển khoản chi tiết */}
+                  <Col xs={24} sm={13}>
+                    <Card
+                      size="small"
+                      style={{
+                        borderRadius: 12,
+                        background: '#f8fafc',
+                        borderColor: '#e2e8f0',
+                      }}
+                    >
+                      <div style={{ marginBottom: 12 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>Ngân hàng thụ hưởng:</Text>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>
+                          {activePaymentOrder.bankName || 'MB Bank'} ({activePaymentOrder.bankCode || 'MB'})
+                        </div>
+                      </div>
+
+                      <div style={{ marginBottom: 12 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>Chủ tài khoản:</Text>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>
+                          {activePaymentOrder.bankAccountName || 'CONG TY SAAS'}
+                        </div>
+                      </div>
+
+                      <div style={{ marginBottom: 12 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>Số tài khoản:</Text>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span style={{ fontWeight: 800, fontSize: 16, color: '#0f172a', letterSpacing: 0.5 }}>
+                            {activePaymentOrder.bankAccountNumber || '0987654321'}
+                          </span>
+                          <Button
+                            size="small"
+                            icon={<CopyOutlined />}
+                            onClick={() => {
+                              navigator.clipboard.writeText(activePaymentOrder.bankAccountNumber || '');
+                              message.success('Đã sao chép số tài khoản');
+                            }}
+                          >
+                            Sao chép
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div style={{ marginBottom: 12 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>Số tiền thanh toán:</Text>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span style={{ fontWeight: 800, fontSize: 20, color: '#16a34a' }}>
+                            {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(activePaymentOrder.amount)}
+                          </span>
+                          <Button
+                            size="small"
+                            icon={<CopyOutlined />}
+                            onClick={() => {
+                              navigator.clipboard.writeText(String(activePaymentOrder.amount));
+                              message.success('Đã sao chép số tiền');
+                            }}
+                          >
+                            Sao chép
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>Nội dung chuyển khoản (bắt buộc đúng):</Text>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fef3c7', padding: '6px 10px', borderRadius: 6, border: '1px dashed #f59e0b' }}>
+                          <span style={{ fontWeight: 800, fontSize: 15, color: '#b45309' }}>
+                            {activePaymentOrder.transferContent}
+                          </span>
+                          <Button
+                            size="small"
+                            type="primary"
+                            icon={<CopyOutlined />}
+                            onClick={() => {
+                              navigator.clipboard.writeText(activePaymentOrder.transferContent || '');
+                              message.success('Đã sao chép nội dung');
+                            }}
+                            style={{ background: '#d97706', borderColor: '#d97706' }}
+                          >
+                            Sao chép
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
+
+                    <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {activePaymentOrder.checkoutUrl && (
+                        <Button
+                          icon={<CreditCardOutlined />}
+                          onClick={() => {
+                            if (
+                              activePaymentOrder.checkoutUrl?.includes('payos.vn') ||
+                              activePaymentOrder.checkoutUrl?.includes('vnpayment.vn')
+                            ) {
+                              window.open(activePaymentOrder.checkoutUrl, '_blank');
+                            } else {
+                              // Giả lập redirect thành công ngay trên origin & port hiện tại của trình duyệt
+                              window.location.href = `${window.location.origin}/admin/plans?status=PAID&orderCode=${activePaymentOrder.transactionRef}`;
+                            }
+                          }}
+                          style={{
+                            height: 38,
+                            borderRadius: 8,
+                            fontWeight: 600,
+                            color: '#1677ff',
+                            borderColor: '#1677ff',
+                          }}
+                        >
+                          {activePaymentOrder.checkoutUrl?.includes('payos.vn')
+                            ? 'Mở Trang Thanh Toán Cổng PayOS'
+                            : 'Mở Trang Thanh Toán Thử Nghiệm (Giả Lập Redirect)'}
+                        </Button>
+                      )}
+
+                      <Button
+                        type="primary"
+                        icon={<CheckOutlined />}
+                        loading={confirmingPayment}
+                        onClick={handleConfirmPaymentManual}
+                        style={{
+                          height: 40,
+                          borderRadius: 8,
+                          fontWeight: 600,
+                          background: '#16a34a',
+                          borderColor: '#16a34a',
+                        }}
+                      >
+                        Tôi đã chuyển khoản thành công (Kích hoạt ngay)
+                      </Button>
+
+                      <Button
+                        danger
+                        loading={cancelingPayment}
+                        onClick={handleCancelPaymentOrder}
+                        style={{ height: 36, borderRadius: 8 }}
+                      >
+                        Hủy đơn giao dịch này
+                      </Button>
+                    </div>
+                  </Col>
+                </Row>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal Lịch Sử Thanh Toán & Hóa Đơn */}
+      <Modal
+        title={
+          <Space>
+            <HistoryOutlined style={{ color: '#1677ff', fontSize: 20 }} />
+            <span style={{ fontSize: 17, fontWeight: 700 }}>
+              Lịch Sử Thanh Toán & Hóa Đơn Doanh Nghiệp
+            </span>
+          </Space>
+        }
+        open={isHistoryModalOpen}
+        onCancel={() => setIsHistoryModalOpen(false)}
+        footer={null}
+        width={860}
+        destroyOnClose
+      >
+        <div style={{ marginTop: 12 }}>
+          <Table
+            dataSource={paymentHistory}
+            rowKey="id"
+            loading={loadingHistory}
+            pagination={{ pageSize: 8, showTotal: (total) => `Tổng cộng ${total} giao dịch` }}
+            columns={[
+              {
+                title: 'Mã GD',
+                dataIndex: 'transactionRef',
+                key: 'transactionRef',
+                render: (val: string) => <Text code style={{ fontWeight: 700 }}>{val}</Text>,
+              },
+              {
+                title: 'Loại GD',
+                dataIndex: 'orderType',
+                key: 'orderType',
+                render: (type: string) => (
+                  <Tag color={type === 'UPGRADE' ? 'blue' : 'purple'}>
+                    {type === 'UPGRADE' ? 'Nâng cấp' : 'Gia hạn'}
+                  </Tag>
+                ),
+              },
+              {
+                title: 'Gói cước',
+                dataIndex: 'planName',
+                key: 'planName',
+                render: (val: string) => <Text strong>{val || 'N/A'}</Text>,
+              },
+              {
+                title: 'Số tiền',
+                dataIndex: 'amount',
+                key: 'amount',
+                render: (val: number) => (
+                  <Text strong style={{ color: '#16a34a' }}>
+                    {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val)}
+                  </Text>
+                ),
+              },
+              {
+                title: 'Phương thức',
+                dataIndex: 'provider',
+                key: 'provider',
+                render: (p: string) => <Tag>{p}</Tag>,
+              },
+              {
+                title: 'Trạng thái',
+                dataIndex: 'status',
+                key: 'status',
+                render: (status: string) => {
+                  if (status === 'SUCCESS') return <Tag color="green">Thành công</Tag>;
+                  if (status === 'PENDING') return <Tag color="gold">Chờ thanh toán</Tag>;
+                  if (status === 'CANCELLED') return <Tag color="default">Đã hủy</Tag>;
+                  return <Tag color="red">Thất bại</Tag>;
+                },
+              },
+              {
+                title: 'Thời gian',
+                dataIndex: 'createdAt',
+                key: 'createdAt',
+                render: (date: string) => (date ? new Date(date).toLocaleString('vi-VN') : '—'),
+              },
+            ]}
+          />
+        </div>
       </Modal>
     </div>
   );

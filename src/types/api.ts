@@ -489,6 +489,64 @@ export interface RenewSubscriptionResponse {
   message: string;
 }
 
+export interface CreatePaymentOrderRequest {
+  orderType: 'UPGRADE' | 'RENEW';
+  targetPlanId?: number;
+  durationMonths?: number;
+  paymentProvider?: string;
+  note?: string;
+}
+
+export interface PaymentOrderResponse {
+  paymentId: number;
+  transactionRef: string;
+  orderType: 'UPGRADE' | 'RENEW';
+  amount: number;
+  fullPrice?: number;
+  unusedCreditAmount?: number;
+  remainingDaysCredited?: number;
+  currency: string;
+  status: string;
+  targetPlanId?: number;
+  targetPlanName?: string;
+  durationMonths: number;
+  provider: string;
+  qrCodeUrl?: string;
+  bankCode?: string;
+  bankName?: string;
+  bankAccountNumber?: string;
+  bankAccountName?: string;
+  transferContent?: string;
+  checkoutUrl?: string;
+  createdAt: string;
+  expiresAt: string;
+  message?: string;
+}
+
+export interface PaymentResponse {
+  id: number;
+  subscriptionId?: number;
+  companyId?: number;
+  companyName?: string;
+  planName?: string;
+  orderType?: string;
+  amount: number;
+  currency: string;
+  provider: string;
+  status: string;
+  transactionRef: string;
+  description?: string;
+  durationMonths?: number;
+  createdAt: string;
+  paidAt?: string;
+}
+
+export interface ConfirmPaymentRequest {
+  transactionRef: string;
+  note?: string;
+}
+
+
 
 
 
