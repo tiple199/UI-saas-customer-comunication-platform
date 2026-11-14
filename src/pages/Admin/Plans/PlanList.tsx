@@ -41,7 +41,7 @@ import { isSuccess } from '../../../types/api';
 import type { Plan, PlanStatus, CreatePlanRequest, UpdatePlanRequest } from '../../../types/api';
 import { useAuth } from '../../../context/AuthContext';
 
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
 
 export const isSuperAdminUser = (role?: string | null): boolean => {
   if (!role) return false;
@@ -434,47 +434,99 @@ export const PlanList: React.FC = () => {
   ];
 
   return (
-    <div>
+    <div style={{ maxWidth: 1400, margin: '0 auto', paddingBottom: 40 }}>
+      {/* Header */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 20,
+          flexWrap: 'wrap',
+          gap: 16,
+        }}
+      >
+        <div>
+          <Space align="center">
+            <CrownOutlined style={{ fontSize: 24, color: '#faad14' }} />
+            <Title level={3} style={{ margin: 0, color: '#0f172a' }}>
+              Quản Lý Gói Dịch Vụ SaaS (Subscription Plans)
+            </Title>
+            <Tag color="gold" style={{ fontSize: 13, padding: '2px 10px', borderRadius: 12 }}>
+              {plans.length} Gói
+            </Tag>
+          </Space>
+          <Paragraph type="secondary" style={{ margin: '4px 0 0 0', fontSize: 13 }}>
+            Thiết lập định mức tài nguyên, giới hạn kênh, nhân sự, dung lượng RAG và quota AI cho từng gói dịch vụ
+          </Paragraph>
+        </div>
+
+        <Space wrap>
+          <Button icon={<ReloadOutlined />} onClick={fetchPlans} loading={loading}>
+            Làm mới
+          </Button>
+          {isSuperAdmin && (
+            <>
+              <Button
+                icon={<ThunderboltOutlined />}
+                loading={seeding}
+                onClick={handleSeedSamplePlans}
+              >
+                Tạo 3 gói mẫu
+              </Button>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={handleOpenCreateModal}
+              >
+                Tạo gói dịch vụ mới
+              </Button>
+            </>
+          )}
+        </Space>
+      </div>
+
       {/* Thống kê tổng quan */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+      <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
         <Col xs={24} sm={12} md={6}>
-          <Card size="small" style={{ borderRadius: 10 }}>
+          <Card bordered={false} size="small" style={{ borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
             <Statistic
-              title="Tổng số Gói dịch vụ"
+              title={<span style={{ fontSize: 12, color: '#64748b' }}>Tổng số Gói dịch vụ</span>}
               value={plans.length}
               prefix={<CrownOutlined style={{ color: '#faad14' }} />}
               suffix="gói"
+              valueStyle={{ fontWeight: 800 }}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card size="small" style={{ borderRadius: 10 }}>
+          <Card bordered={false} size="small" style={{ borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
             <Statistic
-              title="Đang hoạt động (ACTIVE)"
+              title={<span style={{ fontSize: 12, color: '#64748b' }}>Đang hoạt động (ACTIVE)</span>}
               value={activeCount}
-              valueStyle={{ color: '#10b981' }}
+              valueStyle={{ color: '#10b981', fontWeight: 800 }}
               prefix={<CheckCircleOutlined />}
               suffix="gói"
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card size="small" style={{ borderRadius: 10 }}>
+          <Card bordered={false} size="small" style={{ borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
             <Statistic
-              title="Ngừng cung cấp (INACTIVE)"
+              title={<span style={{ fontSize: 12, color: '#64748b' }}>Ngừng cung cấp (INACTIVE)</span>}
               value={inactiveCount}
-              valueStyle={{ color: '#64748b' }}
+              valueStyle={{ color: '#64748b', fontWeight: 800 }}
               prefix={<StopOutlined />}
               suffix="gói"
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card size="small" style={{ borderRadius: 10 }}>
+          <Card bordered={false} size="small" style={{ borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
             <Statistic
-              title="Gói tích hợp AI RAG"
+              title={<span style={{ fontSize: 12, color: '#64748b' }}>Gói tích hợp AI RAG</span>}
               value={aiPlansCount}
-              valueStyle={{ color: '#722ed1' }}
+              valueStyle={{ color: '#722ed1', fontWeight: 800 }}
               prefix={<RobotOutlined />}
               suffix="gói"
             />
@@ -482,67 +534,56 @@ export const PlanList: React.FC = () => {
         </Col>
       </Row>
 
-      {/* Bảng quản lý Plan */}
+      {/* Filter Card */}
       <Card
-        style={{ borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
-        title={
-          <Space size={10}>
-            <CrownOutlined style={{ color: '#faad14', fontSize: 20 }} />
-            <div>
-              <Title level={5} style={{ margin: 0 }}>
-                Quản Lý Gói Dịch Vụ SaaS (Subscription Plans)
-              </Title>
-              <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
-                Thiết lập định mức tài nguyên, giới hạn kênh, nhân sự, dung lượng RAG và quota AI cho từng gói
-              </Text>
-            </div>
-          </Space>
-        }
-        extra={
-          <Space wrap>
+        bordered={false}
+        style={{
+          borderRadius: 14,
+          boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
+          marginBottom: 20,
+        }}
+      >
+        <Row gutter={[16, 16]} align="middle">
+          <Col xs={24} sm={12} md={8}>
             <Input
-              placeholder="Tìm theo tên gói..."
+              placeholder="Tìm theo tên gói dịch vụ..."
               prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
               allowClear
               value={searchKeyword}
               onChange={(e) => setSearchKeyword(e.target.value)}
-              style={{ width: 200 }}
             />
-            {isSuperAdmin && (
+          </Col>
+          {isSuperAdmin && (
+            <Col xs={12} sm={6} md={6}>
               <Select
+                style={{ width: '100%' }}
                 value={statusFilter}
                 onChange={(val) => setStatusFilter(val)}
-                style={{ width: 175 }}
                 options={[
                   { value: 'ALL', label: 'Tất cả trạng thái' },
                   { value: 'ACTIVE', label: 'Đang hoạt động' },
                   { value: 'INACTIVE', label: 'Ngừng hoạt động' },
                 ]}
               />
-            )}
-            <Button icon={<ReloadOutlined />} onClick={fetchPlans} loading={loading}>
-              Làm mới
+            </Col>
+          )}
+          <Col xs={12} sm={6} md={4}>
+            <Button
+              onClick={() => {
+                setSearchKeyword('');
+                setStatusFilter('ALL');
+              }}
+            >
+              Đặt lại
             </Button>
-            {isSuperAdmin && (
-              <>
-                <Button
-                  icon={<ThunderboltOutlined />}
-                  loading={seeding}
-                  onClick={handleSeedSamplePlans}
-                >
-                  Tạo 3 gói mẫu
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={handleOpenCreateModal}
-                >
-                  Tạo gói dịch vụ mới
-                </Button>
-              </>
-            )}
-          </Space>
-        }
+          </Col>
+        </Row>
+      </Card>
+
+      {/* Bảng quản lý Plan */}
+      <Card
+        bordered={false}
+        style={{ borderRadius: 14, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}
       >
         <Table
           rowKey="id"
@@ -607,7 +648,7 @@ export const PlanList: React.FC = () => {
             </Col>
           </Row>
 
-          <Divider style={{ margin: '8px 0 16px' }} orientation="left" plain>
+          <Divider style={{ margin: '8px 0 16px' }} titlePlacement="left" plain>
             <Text type="secondary" style={{ fontSize: 12 }}>
               GIỚI HẠN TÀI NGUYÊN CÔNG TY
             </Text>
@@ -643,7 +684,7 @@ export const PlanList: React.FC = () => {
             </Col>
           </Row>
 
-          <Divider style={{ margin: '8px 0 16px' }} orientation="left" plain>
+          <Divider style={{ margin: '8px 0 16px' }} titlePlacement="left" plain>
             <Text type="secondary" style={{ fontSize: 12 }}>
               CẤU HÌNH TRỢ LÝ AI & TRẠNG THÁI
             </Text>

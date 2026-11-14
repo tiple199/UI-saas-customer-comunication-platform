@@ -6,6 +6,9 @@ import {
   LogoutOutlined,
   UserOutlined,
   SafetyCertificateFilled,
+  DashboardOutlined,
+  ShopOutlined,
+  FieldTimeOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -43,7 +46,13 @@ export const SuperAdminLayout: React.FC = () => {
     },
   ];
 
-  const selectedKey = location.pathname.includes('/super-admin/plans') ? 'plans' : 'plans';
+  const selectedKey = location.pathname.includes('/super-admin/companies')
+    ? 'companies'
+    : location.pathname.includes('/super-admin/subscriptions')
+    ? 'subscriptions'
+    : location.pathname.includes('/super-admin/plans')
+    ? 'plans'
+    : 'dashboard';
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -117,6 +126,24 @@ export const SuperAdminLayout: React.FC = () => {
             selectedKeys={[selectedKey]}
             style={{ height: '100%', borderRight: 0, paddingTop: 12 }}
             items={[
+              {
+                key: 'dashboard',
+                icon: <DashboardOutlined />,
+                label: 'Tổng Quan Hệ Thống (Dashboard)',
+                onClick: () => navigate('/super-admin/dashboard'),
+              },
+              {
+                key: 'companies',
+                icon: <ShopOutlined />,
+                label: 'Quản Lý Doanh Nghiệp (Companies)',
+                onClick: () => navigate('/super-admin/companies'),
+              },
+              {
+                key: 'subscriptions',
+                icon: <FieldTimeOutlined />,
+                label: 'Quản Lý Thuê Bao (Subscriptions)',
+                onClick: () => navigate('/super-admin/subscriptions'),
+              },
               {
                 key: 'plans',
                 icon: <CrownOutlined />,

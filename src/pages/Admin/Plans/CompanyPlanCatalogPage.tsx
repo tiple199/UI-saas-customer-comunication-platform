@@ -15,7 +15,6 @@ import {
   Radio,
   message,
   Table,
-  Tooltip,
 } from 'antd';
 import {
   CrownOutlined,
@@ -30,7 +29,6 @@ import {
   CreditCardOutlined,
   CalendarOutlined,
   ReloadOutlined,
-  SyncOutlined,
   QrcodeOutlined,
   CopyOutlined,
   HistoryOutlined,
@@ -684,7 +682,6 @@ export const CompanyPlanCatalogPage: React.FC = () => {
           const isEnterprise = plan.price >= 1000000;
           const isPro = plan.price > 0 && plan.price < 1000000;
           const isDowngrade = currentPlan && Number(plan.price) < currentPlanPrice;
-          const isUpgrade = currentPlan && Number(plan.price) > currentPlanPrice;
           const priceObj = formatPrice(plan.price);
 
           const cardContent = (

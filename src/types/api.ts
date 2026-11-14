@@ -546,6 +546,153 @@ export interface ConfirmPaymentRequest {
   note?: string;
 }
 
+export interface PlanDistributionItem {
+  planId: number;
+  planName: string;
+  monthlyPrice: number;
+  companyCount: number;
+  percentage: number;
+}
+
+export interface MonthlyTrendItem {
+  month: string;
+  label: string;
+  revenue: number;
+  transactionCount: number;
+  newCompanies: number;
+}
+
+export interface SuperAdminRecentPaymentItem {
+  id: number;
+  transactionRef: string;
+  companyId?: number;
+  companyName?: string;
+  planName?: string;
+  amount: number;
+  currency: string;
+  provider: string;
+  status: string;
+  createdAt: string;
+  paidAt?: string;
+}
+
+export interface SuperAdminRecentCompanyItem {
+  id: number;
+  name: string;
+  logoUrl?: string;
+  status?: string;
+  currentPlanName?: string;
+  memberCount: number;
+  createdAt: string;
+}
+
+export interface SuperAdminDashboardResponse {
+  totalCompanies: number;
+  newCompaniesThisMonth: number;
+  totalUsers: number;
+  activeSubscriptions: number;
+  totalRevenue: number;
+  revenueThisMonth: number;
+  totalConversations: number;
+  totalChannels: number;
+  planDistributions: PlanDistributionItem[];
+  monthlyTrends: MonthlyTrendItem[];
+  recentPayments: SuperAdminRecentPaymentItem[];
+  recentCompanies: SuperAdminRecentCompanyItem[];
+}
+
+export interface SuperAdminCompanyItemDto {
+  id: number;
+  name: string;
+  logoUrl?: string;
+  status?: string;
+  createdAt: string;
+  ownerId?: number;
+  ownerName?: string;
+  ownerEmail?: string;
+  planId?: number;
+  planName?: string;
+  subscriptionStatus?: string;
+  subscriptionStartAt?: string;
+  subscriptionEndAt?: string;
+  memberCount: number;
+  channelCount: number;
+  conversationCount: number;
+  totalPaid: number;
+}
+
+export interface SuperAdminCompanyDetailDto extends SuperAdminCompanyItemDto {
+  maxUsers?: number;
+  maxChannels?: number;
+  storageLimitMb?: number;
+  usedStorageBytes?: number;
+  aiEnabled?: boolean;
+  aiQuota?: number;
+  usedAiQuotaThisMonth?: number;
+  recentPayments?: RecentPaymentDto[];
+  members?: CompanyMember[];
+}
+
+export interface RecentPaymentDto {
+  id: number;
+  transactionRef: string;
+  companyId?: number;
+  companyName?: string;
+  planName?: string;
+  amount: number;
+  currency: string;
+  provider: string;
+  status: string;
+  createdAt: string;
+  paidAt?: string;
+}
+
+export interface UpdateCompanyStatusRequest {
+  status: string;
+  reason?: string;
+}
+
+export interface SuperAdminAssignPlanRequest {
+  planId: number;
+  durationMonths?: number;
+  note?: string;
+}
+
+export interface SuperAdminSubscriptionItemDto {
+  id: number;
+  companyId?: number;
+  companyName?: string;
+  companyStatus?: string;
+  ownerName?: string;
+  ownerEmail?: string;
+  planId?: number;
+  planName?: string;
+  planPrice?: number;
+  status: string;
+  startAt?: string;
+  endAt?: string;
+  isLifetime: boolean;
+  daysRemaining?: number;
+  pendingPlanId?: number;
+  pendingPlanName?: string;
+  createdAt: string;
+}
+
+export interface SuperAdminSubscriptionStatsDto {
+  totalSubscriptions: number;
+  activeSubscriptions: number;
+  paidSubscriptions: number;
+  freeSubscriptions: number;
+  expiringIn7Days: number;
+  estimatedMrr: number;
+}
+
+export interface ExtendSubscriptionRequest {
+  months: number;
+  note?: string;
+}
+
+
 
 
 
